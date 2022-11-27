@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <assert.h>
 
 #define PROGRAM_NAME "multicopy"
 
@@ -38,12 +39,14 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	char buf[8192];
 	fprintf(stdout, "Copying %s to %i destinations...\n", source_path, dest_num);
+	char buf[8192];
 
+	ssize_t total_read = 0;
+	fprintf(stdout, "Progress:  0%%");
 	while (1) {
 		ssize_t read_result = read(source_fd, &buf[0], sizeof(buf));
-		if (errno != 0) {
+		if (read_result == -1) {
 		fprintf(stderr, "Error reading %s: %s\n", source_path, strerror(errno));
 		break;
 		}
@@ -51,16 +54,20 @@ int main(int argc, char *argv[]) {
 
 		for (int i = 0; i < dest_num; i++) {
 			ssize_t write_result = write(dest_fds[i], &buf[0], read_result);
-			if (errno != 0) {
+			if (write_result == -1) {
 			fprintf(stderr, "Error writing %s: %s\n", argv[i+2], strerror(errno));
 			break;
 			}
+			assert(write_result == read_result);
 		}
+		total_read += read_result;
+		fprintf(stdout, "\b\b\b\b%3.0f%%", ((float)total_read / (float)sb.st_size) * 100);
 	}
+	fprintf(stdout, "\n");
 
 	fprintf(stdout, "Created %i files:\n", dest_num);
 	for (int i = 0; i < dest_num; i++) {
-		fprintf(stdout, "%s\n", argv[i+2]);
+		fprintf(stdout, "\t%s\n", argv[i+2]);
 	}
 	exit(EXIT_SUCCESS);
 }
