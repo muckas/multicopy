@@ -25,7 +25,7 @@ int main(int argc, char *argv[]) {
 	struct stat sb;
 	int stat_result = fstat(source_fd, &sb);
 	if (stat_result < 0) {
-		fprintf(stderr, "%s: cannot stat '%s': %s\n", source_path, strerror(errno));
+		fprintf(stderr, "%s: cannot stat '%s': %s\n", PROGRAM_NAME, source_path, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 
