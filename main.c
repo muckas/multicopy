@@ -21,17 +21,18 @@ Copy SOURCE to multiple DESTINATION(s)\n\
 \n\
 	-h	display this help and exit\n\
 	-f	force copy even if destination files exist (overwrites files)\n\
+	-p	show progress (persent copied)\n\
 ");
 }
 
 int main(int argc, char *argv[]) {
 	char *program_name = argv[0];
 	bool opt_force = false;
-
+	bool opt_progress = false;
 
 	// Parse command line arguments
 	int opt;
-	while ((opt = getopt(argc, argv, ":hf")) != -1) {
+	while ((opt = getopt(argc, argv, ":hfp")) != -1) {
 		switch(opt) {
 			case 'h':
 				print_help(program_name);
@@ -39,6 +40,9 @@ int main(int argc, char *argv[]) {
 				break;
 			case 'f':
 				opt_force = true;
+				break;
+			case 'p':
+				opt_progress = true;
 				break;
 			case '?':
 				fprintf(stderr, "%s: invalid option -- '%c'\n", program_name, optopt);
@@ -110,7 +114,9 @@ int main(int argc, char *argv[]) {
 	// Copying files
 	char buf[8192];
 	ssize_t total_read = 0;
-	fprintf(stdout, "Progress:  0%%");
+	if (opt_progress) {
+		fprintf(stdout, "Progress:  0%%");
+	}
 	while (1) {
 		ssize_t read_result = read(source_fd, &buf[0], sizeof(buf));
 		if (read_result == -1) {
@@ -128,10 +134,14 @@ int main(int argc, char *argv[]) {
 			assert(write_result == read_result);
 		}
 		// Display progress
-		total_read += read_result;
-		fprintf(stdout, "\b\b\b\b%3.0f%%", ((float)total_read / (float)statbuff.st_size) * 100);
+		if (opt_progress) {
+			total_read += read_result;
+			fprintf(stdout, "\b\b\b\b%3.0f%%", ((float)total_read / (float)statbuff.st_size) * 100);
+		}
 	}
-	fprintf(stdout, "\n");
+	if (opt_progress) {
+		fprintf(stdout, "\n");
+	}
 
 	fprintf(stdout, "Created %i files:\n", dest_num);
 	for (int i = 0; i < dest_num; i++) {
