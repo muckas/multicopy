@@ -9,10 +9,41 @@
 
 #define PROGRAM_NAME "multicopy"
 
+void print_usage(char *program_name) {
+	fprintf(stdout, "Usage: %s [OPTION]... SOURCE DESTINATION...\n", program_name);
+}
+
+void print_help(char *program_name) {
+	print_usage(program_name);
+	fprintf(stdout, "\
+Copy SOURCE to multiple DESTINATION(s)\n\
+\n\
+	-h	display this help and exit\n\
+");
+}
+
 int main(int argc, char *argv[]) {
-	if (argc < 3) {
-		fprintf(stderr, "Usage: %s <source_file> <dest_file_1> ... <dest_file_n>\n", argv[0]);
-		exit(EXIT_FAILURE);
+	char *program_name = argv[0];
+
+	if (argc < 2) {
+		print_usage(argv[0]);
+		exit(EXIT_SUCCESS);
+	}
+
+	// Parse command line arguments
+	int opt;
+	while ((opt = getopt(argc, argv, ":h")) != -1) {
+		switch(opt) {
+			case 'h':
+				print_help(program_name);
+				exit(EXIT_SUCCESS);
+				break;
+			case '?':
+				fprintf(stderr, "%s: invalid option -- '%c'\n", program_name, optopt);
+				fprintf(stdout, "Try '%s -h' for more information'\n", program_name);
+				exit(EXIT_FAILURE);
+				break;
+		}
 	}
 
 	int dest_num = argc - 2;
@@ -21,12 +52,12 @@ int main(int argc, char *argv[]) {
 	// Open source file
 	int source_fd = open(source_path, O_RDONLY);
 	if (source_fd < 0) {
-		fprintf(stderr, "%s: cannot read '%s': %s\n", PROGRAM_NAME, source_path, strerror(errno));
+		fprintf(stderr, "%s: cannot read '%s': %s\n", program_name, source_path, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 	struct stat statbuff;
 	if (fstat(source_fd, &statbuff) < 0) {
-		fprintf(stderr, "%s: cannot stat '%s': %s\n", PROGRAM_NAME, source_path, strerror(errno));
+		fprintf(stderr, "%s: cannot stat '%s': %s\n", program_name, source_path, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 
@@ -35,12 +66,12 @@ int main(int argc, char *argv[]) {
 	for (int i = 0; i < dest_num; i++) {
 		struct stat buff;
 		if (stat(argv[i+2], &buff) == 0) {
-			fprintf(stderr, "%s: file already exists '%s'\n", PROGRAM_NAME, argv[i+2]);
+			fprintf(stderr, "%s: file already exists '%s'\n", program_name, argv[i+2]);
 			overwriting = 1;
 		}
 	}
 	if (overwriting == 1) {
-		fprintf(stdout, "%s: aborting copy\n", PROGRAM_NAME);
+		fprintf(stdout, "%s: aborting copy\n", program_name);
 		exit(EXIT_FAILURE);
 	}
 
@@ -49,19 +80,19 @@ int main(int argc, char *argv[]) {
 	for (int i = 0; i < dest_num; i++) {
 		dest_fds[i] = open(argv[i+2], O_CREAT|O_WRONLY|O_TRUNC, statbuff.st_mode);
 		if (dest_fds[i] < 0) {
-			fprintf(stderr, "%s: cannot create regular file '%s': %s\n", PROGRAM_NAME, argv[i+2], strerror(errno));
+			fprintf(stderr, "%s: cannot create regular file '%s': %s\n", program_name, argv[i+2], strerror(errno));
 			exit(EXIT_FAILURE);
 		}
 		int err = posix_fallocate(dest_fds[i], 0, statbuff.st_size);
 		if ( err != 0) {
-			fprintf(stderr, "%s: cannot allocate space for '%s': %s\n", PROGRAM_NAME, argv[i+2], strerror(err));
+			fprintf(stderr, "%s: cannot allocate space for '%s': %s\n", program_name, argv[i+2], strerror(err));
 			exit(EXIT_FAILURE);
 		}
 	}
 
 	fprintf(stdout, "Copying %s to %i destinations...\n", source_path, dest_num);
 	if (posix_fadvise(source_fd, 0, 0, POSIX_FADV_SEQUENTIAL) != 0) {
-		fprintf(stderr, "%s: posix_fadvice on '%s': %s\n", PROGRAM_NAME, source_path, strerror(errno));
+		fprintf(stderr, "%s: posix_fadvice on '%s': %s\n", program_name, source_path, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 
