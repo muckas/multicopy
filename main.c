@@ -9,12 +9,14 @@
 #include <assert.h>
 
 #define PROGRAM_NAME "multicopy"
+#define VERSION "1.0"
 
 void print_usage(char *program_name) {
 	fprintf(stdout, "Usage: %s [OPTION]... SOURCE DESTINATION...\n", program_name);
 }
 
 void print_help(char *program_name) {
+	fprintf(stdout, "%s %s\n", PROGRAM_NAME, VERSION);
 	print_usage(program_name);
 	fprintf(stdout, "\
 Copy SOURCE to multiple DESTINATION(s)\n\
