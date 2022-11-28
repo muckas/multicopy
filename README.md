@@ -1,4 +1,4 @@
-# multycopy
+# multicopy
 A tool for copying a file to multiple destinations at once with a single read
 
 ```
