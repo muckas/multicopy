@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <assert.h>
 
 #define PROGRAM_NAME "multicopy"
 
@@ -23,8 +24,7 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 	struct stat sb;
-	int stat_result = fstat(source_fd, &sb);
-	if (stat_result < 0) {
+	if (fstat(source_fd, &sb) < 0) {
 		fprintf(stderr, "%s: cannot stat '%s': %s\n", PROGRAM_NAME, source_path, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
@@ -36,14 +36,25 @@ int main(int argc, char *argv[]) {
 			fprintf(stderr, "%s: cannot create regular file '%s': %s\n", PROGRAM_NAME, argv[i+2], strerror(errno));
 			exit(EXIT_FAILURE);
 		}
+		int err = posix_fallocate(dest_fds[i], 0, sb.st_size);
+		if ( err != 0) {
+			fprintf(stderr, "%s: cannot allocate space for '%s': %s\n", PROGRAM_NAME, argv[i+2], strerror(err));
+			exit(EXIT_FAILURE);
+		}
 	}
 
-	char buf[8192];
 	fprintf(stdout, "Copying %s to %i destinations...\n", source_path, dest_num);
+	char buf[8192];
+	if (posix_fadvise(source_fd, 0, 0, POSIX_FADV_SEQUENTIAL) != 0) {
+		fprintf(stderr, "%s: posix_fadvice on '%s': %s\n", PROGRAM_NAME, source_path, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
 
+	ssize_t total_read = 0;
+	fprintf(stdout, "Progress:  0%%");
 	while (1) {
 		ssize_t read_result = read(source_fd, &buf[0], sizeof(buf));
-		if (errno != 0) {
+		if (read_result == -1) {
 		fprintf(stderr, "Error reading %s: %s\n", source_path, strerror(errno));
 		break;
 		}
@@ -51,16 +62,20 @@ int main(int argc, char *argv[]) {
 
 		for (int i = 0; i < dest_num; i++) {
 			ssize_t write_result = write(dest_fds[i], &buf[0], read_result);
-			if (errno != 0) {
+			if (write_result == -1) {
 			fprintf(stderr, "Error writing %s: %s\n", argv[i+2], strerror(errno));
 			break;
 			}
+			assert(write_result == read_result);
 		}
+		total_read += read_result;
+		fprintf(stdout, "\b\b\b\b%3.0f%%", ((float)total_read / (float)sb.st_size) * 100);
 	}
+	fprintf(stdout, "\n");
 
 	fprintf(stdout, "Created %i files:\n", dest_num);
 	for (int i = 0; i < dest_num; i++) {
-		fprintf(stdout, "%s\n", argv[i+2]);
+		fprintf(stdout, "\t%s\n", argv[i+2]);
 	}
 	exit(EXIT_SUCCESS);
 }
