@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
@@ -24,19 +25,19 @@ Copy SOURCE to multiple DESTINATION(s)\n\
 
 int main(int argc, char *argv[]) {
 	char *program_name = argv[0];
+	bool opt_force = false;
 
-	if (argc < 2) {
-		print_usage(argv[0]);
-		exit(EXIT_SUCCESS);
-	}
 
 	// Parse command line arguments
 	int opt;
-	while ((opt = getopt(argc, argv, ":h")) != -1) {
+	while ((opt = getopt(argc, argv, ":hf")) != -1) {
 		switch(opt) {
 			case 'h':
 				print_help(program_name);
 				exit(EXIT_SUCCESS);
+				break;
+			case 'f':
+				opt_force = true;
 				break;
 			case '?':
 				fprintf(stderr, "%s: invalid option -- '%c'\n", program_name, optopt);
@@ -45,9 +46,16 @@ int main(int argc, char *argv[]) {
 				break;
 		}
 	}
+	// Count extra arguments
+	int dest_num = argc - optind - 1;
+	if (dest_num < 1) {
+		fprintf(stderr, "%s: not enough arguments\n", program_name);
+		print_usage(program_name);
+		exit(EXIT_SUCCESS);
+	}
 
-	int dest_num = argc - 2;
-	char *source_path = argv[1];
+	char *source_path = argv[optind];
+	optind++; // optind now on first DESTINATION argument
 
 	// Open source file
 	int source_fd = open(source_path, O_RDONLY);
@@ -61,31 +69,33 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
-	// Check if overwriting
-	int overwriting = 0;
-	for (int i = 0; i < dest_num; i++) {
-		struct stat buff;
-		if (stat(argv[i+2], &buff) == 0) {
-			fprintf(stderr, "%s: file already exists '%s'\n", program_name, argv[i+2]);
-			overwriting = 1;
+	if (!opt_force) {
+		// Check if overwriting
+		int overwriting = 0;
+		for (int i = 0; i < dest_num; i++) {
+			struct stat buff;
+			if (stat(argv[i+optind], &buff) == 0) {
+				fprintf(stderr, "%s: file already exists '%s'\n", program_name, argv[i+optind]);
+				overwriting = 1;
+			}
 		}
-	}
-	if (overwriting == 1) {
-		fprintf(stdout, "%s: aborting copy\n", program_name);
-		exit(EXIT_FAILURE);
+		if (overwriting == 1) {
+			fprintf(stdout, "%s: aborting copy\n", program_name);
+			exit(EXIT_FAILURE);
+		}
 	}
 
 	// Get file descriptors and allocate space for new files
 	int dest_fds[dest_num];
 	for (int i = 0; i < dest_num; i++) {
-		dest_fds[i] = open(argv[i+2], O_CREAT|O_WRONLY|O_TRUNC, statbuff.st_mode);
+		dest_fds[i] = open(argv[i+optind], O_CREAT|O_WRONLY|O_TRUNC, statbuff.st_mode);
 		if (dest_fds[i] < 0) {
-			fprintf(stderr, "%s: cannot create regular file '%s': %s\n", program_name, argv[i+2], strerror(errno));
+			fprintf(stderr, "%s: cannot create regular file '%s': %s\n", program_name, argv[i+optind], strerror(errno));
 			exit(EXIT_FAILURE);
 		}
 		int err = posix_fallocate(dest_fds[i], 0, statbuff.st_size);
 		if ( err != 0) {
-			fprintf(stderr, "%s: cannot allocate space for '%s': %s\n", program_name, argv[i+2], strerror(err));
+			fprintf(stderr, "%s: cannot allocate space for '%s': %s\n", program_name, argv[i+optind], strerror(err));
 			exit(EXIT_FAILURE);
 		}
 	}
@@ -111,7 +121,7 @@ int main(int argc, char *argv[]) {
 		for (int i = 0; i < dest_num; i++) {
 			ssize_t write_result = write(dest_fds[i], &buf[0], read_result);
 			if (write_result == -1) {
-			fprintf(stderr, "Error writing %s: %s\n", argv[i+2], strerror(errno));
+			fprintf(stderr, "Error writing %s: %s\n", argv[i+optind], strerror(errno));
 			break;
 			}
 			assert(write_result == read_result);
@@ -124,7 +134,7 @@ int main(int argc, char *argv[]) {
 
 	fprintf(stdout, "Created %i files:\n", dest_num);
 	for (int i = 0; i < dest_num; i++) {
-		fprintf(stdout, "\t%s\n", argv[i+2]);
+		fprintf(stdout, "\t%s\n", argv[i+optind]);
 	}
 	exit(EXIT_SUCCESS);
 }
