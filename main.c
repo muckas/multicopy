@@ -20,6 +20,7 @@ void print_help(char *program_name) {
 Copy SOURCE to multiple DESTINATION(s)\n\
 \n\
 	-h	display this help and exit\n\
+	-f	force copy even if destination files exist (overwrites files)\n\
 ");
 }
 
