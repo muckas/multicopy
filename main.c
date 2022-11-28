@@ -22,6 +22,7 @@ Copy SOURCE to multiple DESTINATION(s)\n\
 	-h	display this help and exit\n\
 	-f	force copy even if destination files exist (overwrites files)\n\
 	-p	show progress (persent copied)\n\
+	-v	be verbose\n\
 ");
 }
 
@@ -29,10 +30,11 @@ int main(int argc, char *argv[]) {
 	char *program_name = argv[0];
 	bool opt_force = false;
 	bool opt_progress = false;
+	bool opt_verbose = false;
 
 	// Parse command line arguments
 	int opt;
-	while ((opt = getopt(argc, argv, ":hfp")) != -1) {
+	while ((opt = getopt(argc, argv, ":hfpv")) != -1) {
 		switch(opt) {
 			case 'h':
 				print_help(program_name);
@@ -43,6 +45,9 @@ int main(int argc, char *argv[]) {
 				break;
 			case 'p':
 				opt_progress = true;
+				break;
+			case 'v':
+				opt_verbose = true;
 				break;
 			case '?':
 				fprintf(stderr, "%s: invalid option -- '%c'\n", program_name, optopt);
@@ -85,7 +90,7 @@ int main(int argc, char *argv[]) {
 			}
 		}
 		if (overwriting == 1) {
-			fprintf(stdout, "%s: aborting copy\n", program_name);
+			fprintf(stdout, "%s: aborting copy, use '-f' to overwrite existing files\n", program_name);
 			exit(EXIT_FAILURE);
 		}
 	}
@@ -105,7 +110,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-	fprintf(stdout, "Copying %s to %i destinations...\n", source_path, dest_num);
+	if (opt_verbose) fprintf(stdout, "Copying %s to %i destinations...\n", source_path, dest_num);
 	if (posix_fadvise(source_fd, 0, 0, POSIX_FADV_SEQUENTIAL) != 0) {
 		fprintf(stderr, "%s: posix_fadvice on '%s': %s\n", program_name, source_path, strerror(errno));
 		exit(EXIT_FAILURE);
@@ -114,9 +119,7 @@ int main(int argc, char *argv[]) {
 	// Copying files
 	char buf[8192];
 	ssize_t total_read = 0;
-	if (opt_progress) {
-		fprintf(stdout, "Progress:  0%%");
-	}
+	if (opt_progress) fprintf(stdout, "Progress:  0%%");
 	while (1) {
 		ssize_t read_result = read(source_fd, &buf[0], sizeof(buf));
 		if (read_result == -1) {
@@ -139,13 +142,13 @@ int main(int argc, char *argv[]) {
 			fprintf(stdout, "\b\b\b\b%3.0f%%", ((float)total_read / (float)statbuff.st_size) * 100);
 		}
 	}
-	if (opt_progress) {
-		fprintf(stdout, "\n");
-	}
+	if (opt_progress) fprintf(stdout, "\n");
 
-	fprintf(stdout, "Created %i files:\n", dest_num);
-	for (int i = 0; i < dest_num; i++) {
-		fprintf(stdout, "\t%s\n", argv[i+optind]);
+	if (opt_verbose) {
+		fprintf(stdout, "Created %i files:\n", dest_num);
+		for (int i = 0; i < dest_num; i++) {
+			fprintf(stdout, "\t%s\n", argv[i+optind]);
+		}
 	}
 	exit(EXIT_SUCCESS);
 }
