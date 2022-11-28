@@ -24,8 +24,7 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 	struct stat sb;
-	int stat_result = fstat(source_fd, &sb);
-	if (stat_result < 0) {
+	if (fstat(source_fd, &sb) < 0) {
 		fprintf(stderr, "%s: cannot stat '%s': %s\n", source_path, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
@@ -37,10 +36,19 @@ int main(int argc, char *argv[]) {
 			fprintf(stderr, "%s: cannot create regular file '%s': %s\n", PROGRAM_NAME, argv[i+2], strerror(errno));
 			exit(EXIT_FAILURE);
 		}
+		int err = posix_fallocate(dest_fds[i], 0, sb.st_size);
+		if ( err != 0) {
+			fprintf(stderr, "%s: cannot allocate space for '%s': %s\n", PROGRAM_NAME, argv[i+2], strerror(err));
+			exit(EXIT_FAILURE);
+		}
 	}
 
 	fprintf(stdout, "Copying %s to %i destinations...\n", source_path, dest_num);
 	char buf[8192];
+	if (posix_fadvise(source_fd, 0, 0, POSIX_FADV_SEQUENTIAL) != 0) {
+		fprintf(stderr, "%s: posix_fadvice on '%s': %s\n", PROGRAM_NAME, source_path, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
 
 	ssize_t total_read = 0;
 	fprintf(stdout, "Progress:  0%%");
