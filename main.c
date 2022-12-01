@@ -6,7 +6,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
-#include <assert.h>
 
 #define PROGRAM_NAME "multicopy"
 #define VERSION "1.0"
@@ -123,24 +122,27 @@ int main(int argc, char *argv[]) {
 	ssize_t total_read = 0;
 	if (opt_progress) fprintf(stdout, "Progress:  0%%");
 	while (1) {
-		ssize_t read_result = read(source_fd, &buf[0], sizeof(buf));
-		if (read_result == -1) {
-		fprintf(stderr, "Error reading %s: %s\n", source_path, strerror(errno));
+		ssize_t bytes_read = read(source_fd, &buf[0], sizeof(buf));
+		if (bytes_read == -1) {
+		fprintf(stderr, "%s: error reading %s: %s\n", program_name, source_path, strerror(errno));
 		break;
 		}
-		if (!read_result) break; // Source file ended
+		if (!bytes_read) break; // Source file ended
 
 		for (int i = 0; i < dest_num; i++) {
-			ssize_t write_result = write(dest_fds[i], &buf[0], read_result);
-			if (write_result == -1) {
-			fprintf(stderr, "Error writing %s: %s\n", argv[i+optind], strerror(errno));
+			ssize_t bytes_written = write(dest_fds[i], &buf[0], bytes_read);
+			if (bytes_written == -1) {
+			fprintf(stderr, "%s: error writing %s: %s\n", program_name, argv[i+optind], strerror(errno));
 			break;
 			}
-			assert(write_result == read_result);
+			if (bytes_written != bytes_read) {
+				fprintf(stderr, "%s: error: bytes_written not equal to bytes_read: file %s\n",
+					program_name, argv[i+optind]);
+			}
 		}
 		// Display progress
 		if (opt_progress) {
-			total_read += read_result;
+			total_read += bytes_read;
 			fprintf(stdout, "\b\b\b\b%3.0f%%", ((float)total_read / (float)statbuff.st_size) * 100);
 		}
 	}
