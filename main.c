@@ -68,15 +68,21 @@ int main(int argc, char *argv[]) {
 	char *source_path = argv[optind];
 	optind++; // optind now on first DESTINATION argument
 
+	// Stat SOURCE
+	struct stat statbuff;
+	if (stat(source_path, &statbuff) < 0) {
+		fprintf(stderr, "%s: cannot stat '%s': %s\n", program_name, source_path, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	if (!S_ISREG(statbuff.st_mode)) {
+		fprintf(stderr, "%s: '%s' is not a regular file\n", program_name, source_path);
+		exit(EXIT_FAILURE);
+	}
+
 	// Open source file
 	int source_fd = open(source_path, O_RDONLY);
 	if (source_fd < 0) {
 		fprintf(stderr, "%s: cannot read '%s': %s\n", program_name, source_path, strerror(errno));
-		exit(EXIT_FAILURE);
-	}
-	struct stat statbuff;
-	if (fstat(source_fd, &statbuff) < 0) {
-		fprintf(stderr, "%s: cannot stat '%s': %s\n", program_name, source_path, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
 
@@ -125,6 +131,7 @@ int main(int argc, char *argv[]) {
 		ssize_t bytes_read = read(source_fd, &buf[0], sizeof(buf));
 		if (bytes_read == -1) {
 		fprintf(stderr, "%s: error reading %s: %s\n", program_name, source_path, strerror(errno));
+		exit(EXIT_FAILURE);
 		break;
 		}
 		if (!bytes_read) break; // Source file ended
@@ -133,11 +140,13 @@ int main(int argc, char *argv[]) {
 			ssize_t bytes_written = write(dest_fds[i], &buf[0], bytes_read);
 			if (bytes_written == -1) {
 			fprintf(stderr, "%s: error writing %s: %s\n", program_name, argv[i+optind], strerror(errno));
+			exit(EXIT_FAILURE);
 			break;
 			}
 			if (bytes_written != bytes_read) {
 				fprintf(stderr, "%s: error: bytes_written not equal to bytes_read: file %s\n",
 					program_name, argv[i+optind]);
+				exit(EXIT_FAILURE);
 			}
 		}
 		// Display progress
