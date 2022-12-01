@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 
 #define PROGRAM_NAME "multicopy"
-#define VERSION "1.0"
+#define VERSION "1.1"
 
 void print_usage(char *program_name) {
 	fprintf(stdout, "Usage: %s [OPTION]... SOURCE DESTINATION...\n", program_name);
