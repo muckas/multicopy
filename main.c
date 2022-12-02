@@ -15,6 +15,7 @@ struct Options {
 	bool force;
 	bool progress;
 	bool verbose;
+	int dest_num;
 	char *dest[];
 } OPTS = {PROGRAM_NAME, false, false, false};
 
@@ -35,7 +36,7 @@ Copy SOURCE to multiple DESTINATION(s)\n\
 ");
 }
 
-int copy_file(char *source_path, struct stat source_stat, char *dest[], int dest_num) {
+int copy_file(char *source_path, struct stat source_stat, char *dest[]) {
 
 	// Open source file
 	int source_fd = open(source_path, O_RDONLY);
@@ -45,8 +46,8 @@ int copy_file(char *source_path, struct stat source_stat, char *dest[], int dest
 	}
 
 	// Get file descriptors and allocate space for new files
-	int dest_fds[dest_num];
-	for (int i = 0; i < dest_num; i++) {
+	int dest_fds[OPTS.dest_num];
+	for (int i = 0; i < OPTS.dest_num; i++) {
 		dest_fds[i] = open(dest[i], O_CREAT|O_WRONLY|O_TRUNC, source_stat.st_mode);
 		if (dest_fds[i] < 0) {
 			fprintf(stderr, "%s: cannot create regular file '%s': %s\n", OPTS.name, dest[i], strerror(errno));
@@ -59,7 +60,7 @@ int copy_file(char *source_path, struct stat source_stat, char *dest[], int dest
 		}
 	}
 
-	if (OPTS.verbose) fprintf(stdout, "Copying %s to %i destinations...\n", source_path, dest_num);
+	if (OPTS.verbose) fprintf(stdout, "Copying %s to %i destinations...\n", source_path, OPTS.dest_num);
 	if (posix_fadvise(source_fd, 0, 0, POSIX_FADV_SEQUENTIAL) != 0) {
 		fprintf(stderr, "%s: posix_fadvice on '%s': %s\n", OPTS.name, source_path, strerror(errno));
 		return -1;
@@ -77,7 +78,7 @@ int copy_file(char *source_path, struct stat source_stat, char *dest[], int dest
 		}
 		if (!bytes_read) break; // Source file ended
 
-		for (int i = 0; i < dest_num; i++) {
+		for (int i = 0; i < OPTS.dest_num; i++) {
 			ssize_t bytes_written = write(dest_fds[i], &buf[0], bytes_read);
 			if (bytes_written == -1) {
 				fprintf(stderr, "%s: error writing %s: %s\n", OPTS.name, dest[i], strerror(errno));
@@ -126,8 +127,8 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	// Count extra arguments
-	int dest_num = argc - optind - 1;
-	if (dest_num < 1) {
+	OPTS.dest_num = argc - optind - 1;
+	if (OPTS.dest_num < 1) {
 		fprintf(stderr, "%s: not enough arguments\n", OPTS.name);
 		print_usage(OPTS.name);
 		exit(EXIT_SUCCESS);
@@ -135,18 +136,17 @@ int main(int argc, char *argv[]) {
 
 	char *source_path = argv[optind];
 	optind++; // optind now on first DESTINATION argument
-	char *dest[argc-optind];
 	for (int i = 0; i < argc-optind; i++) {
-		dest[i] = argv[optind+i];
+		OPTS.dest[i] = argv[optind+i];
 	}
 
 	if (!OPTS.force) {
 		// Check if overwriting
 		int overwriting = 0;
-		for (int i = 0; i < dest_num; i++) {
+		for (int i = 0; i < OPTS.dest_num; i++) {
 			struct stat buff;
-			if (stat(dest[i], &buff) == 0) {
-				fprintf(stderr, "%s: file already exists '%s'\n", OPTS.name, dest[i]);
+			if (stat(OPTS.dest[i], &buff) == 0) {
+				fprintf(stderr, "%s: file already exists '%s'\n", OPTS.name, OPTS.dest[i]);
 				overwriting = 1;
 			}
 		}
@@ -163,7 +163,11 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 	if (S_ISREG(statbuff.st_mode)) {
-		int copy_result = copy_file(source_path, statbuff, dest, dest_num);
+		char *dest[OPTS.dest_num]; // Copy variable sized global array to static size local array
+		for (int i = 0; i < OPTS.dest_num; i++) {
+			dest[i] = OPTS.dest[i];
+		}
+		int copy_result = copy_file(source_path, statbuff, dest);
 		if (copy_result != 1) exit(EXIT_FAILURE);
 	} else {
 		fprintf(stderr, "%s: '%s' is not a regular file\n", OPTS.name, source_path);
@@ -171,8 +175,8 @@ int main(int argc, char *argv[]) {
 	}
 
 	if (OPTS.verbose) {
-		fprintf(stdout, "Created %i files:\n", dest_num);
-		for (int i = 0; i < dest_num; i++) {
+		fprintf(stdout, "Created %i files:\n", OPTS.dest_num);
+		for (int i = 0; i < OPTS.dest_num; i++) {
 			fprintf(stdout, "\t%s\n", argv[i+optind]);
 		}
 	}
