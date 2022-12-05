@@ -1,5 +1,5 @@
 #define PROGRAM_NAME "multicopy"
-#define VERSION "2.0"
+#define VERSION "2.1"
 
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200112L
@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <ftw.h>
+#include <limits.h>
 
 struct Options {
 	char *name;
@@ -32,7 +33,7 @@ void print_help(char *program_name) {
 	print_usage(program_name);
 	fprintf(stdout, "\
 Copy SOURCE to multiple DESTINATION(s)\n\
-If SOURCE is a directory - recursively copies a directory\n\
+If SOURCE is a directory - recursively copies a directory (symlinks are copied, not followed)\n\
 \n\
 	-h	display this help and exit\n\
 	-f	force copy even if destination files exist (overwrites files)\n\
@@ -118,6 +119,7 @@ const char *relative_path(const char *entry_path, int level) {
 int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int tflag, struct FTW *ftwbuf) {
 	switch (tflag) {
 		case(FTW_D): // Directory
+		case(FTW_SL): // Symbolic link
 			for (int i = 0; i < OPTS.dest_num; i++) {
 				// Creating destination path
 				const char *rel_path = relative_path(entry_path, ftwbuf->level - 1); // (level - 1) to change root directory name
@@ -128,23 +130,51 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 					return -1;
 				}
 				if (path[path_len - 1] == '/') path[path_len - 1] = '\0'; // remove trailing slash
-				// Creating directory
-				if (mkdir(path, entry_stat->st_mode) == -1) {
-					if (errno == EEXIST) { // path exists, checking if it's a directory
-						struct stat sb;
-						if (lstat(path, &sb) < 0) {
-							fprintf(stderr, "%s: cannot stat '%s': %s\n", OPTS.name, path, strerror(errno));
+
+				if (tflag == FTW_D) { // entry_path is a directory
+					// Creating directory
+					if (mkdir(path, entry_stat->st_mode) == -1) {
+						if (errno == EEXIST) { // path exists, checking if it's a directory
+							struct stat sb;
+							if (lstat(path, &sb) < 0) {
+								fprintf(stderr, "%s: cannot stat '%s': %s\n", OPTS.name, path, strerror(errno));
+								return -1;
+							}
+							if (!S_ISDIR(sb.st_mode)) { // it's not a directory
+								fprintf(stderr, "%s: cannot mkdir, path exists, but it is not a directory '%s'\n",
+												OPTS.name, path);
+								return -1;
+							}
+						} else {
+							fprintf(stderr, "%s: failed creating directory '%s': %s\n", OPTS.name, path, strerror(errno));
 							return -1;
 						}
-						if (!S_ISDIR(sb.st_mode)) { // it's not a directory
-							fprintf(stderr, "%s: cannot mkdir, path exists, but it is not a directory '%s'\n",
-											OPTS.name, path);
-							return -1;
-						}
+					}
+
+				} else { // entry_path is a symbolic link
+					ssize_t bufsize;
+					if (entry_stat->st_size == 0) {
+						bufsize = PATH_MAX;
 					} else {
-						fprintf(stderr, "%s: failed creating directory '%s': %s\n", OPTS.name, path, strerror(errno));
+						bufsize = entry_stat->st_size + 1;
+					}
+					char *target = malloc(bufsize);
+					if (readlink(entry_path, target, bufsize) == -1) {
+						fprintf(stderr, "%s: failed reading symbolic link '%s': %s\n", OPTS.name, entry_path, strerror(errno));
 						return -1;
 					}
+					target[bufsize - 1] = '\0'; // add nul terminator to the end of the string
+					if (remove(path) == -1) {
+						if (errno != ENOENT) { // ignore errors if path does not exist
+							fprintf(stderr, "%s: failed removing symbolic link '%s': %s\n", OPTS.name, path, strerror(errno));
+							return -1;
+						}
+					}
+					if (symlink(target, path) == -1) {
+						fprintf(stderr, "%s: failed creating symbolic link '%s': %s\n", OPTS.name, path, strerror(errno));
+						return -1;
+					}
+					free(target);
 				}
 			}
 			break;
@@ -173,9 +203,6 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 					return -1;
 				}
 			}
-			break;
-		case(FTW_SL): // Symbolic link
-			/* printf("symbolic link\n"); */
 			break;
 		case(FTW_NS): // Stat failed, lack of permission
 			fprintf(stderr, "%s: cannot call stat on '%s'\n", OPTS.name, entry_path);
