@@ -1,5 +1,5 @@
 #define PROGRAM_NAME "multicopy"
-#define VERSION "2.1"
+#define VERSION "2.2+"
 
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200112L
@@ -101,7 +101,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			fprintf(stdout, "\b\b\b\b%3.0f%%", ((float)total_read / (float)source_stat->st_size) * 100);
 		}
 	}
-	if (OPTS.progress) fprintf(stdout, "\n");
+	if (OPTS.progress) fprintf(stdout, "\r");
 	return 0;
 }
 
@@ -140,10 +140,18 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 								fprintf(stderr, "%s: cannot stat '%s': %s\n", OPTS.name, path, strerror(errno));
 								return -1;
 							}
-							if (!S_ISDIR(sb.st_mode)) { // it's not a directory
-								fprintf(stderr, "%s: cannot mkdir, path exists, but it is not a directory '%s'\n",
-												OPTS.name, path);
-								return -1;
+							if (!S_ISDIR(sb.st_mode)) { // it's not a directory, removing it
+								if (remove(path) == 0) { // file at 'path' removed
+									if (mkdir(path, entry_stat->st_mode) == -1) {
+										fprintf(stderr, "%s: cannot mkdir '%s':%s\n",
+														OPTS.name, path, strerror(errno));
+										return -1;
+									}
+								} else { //failed to remove file at 'path'
+									fprintf(stderr, "%s: cannot mkdir, failed overwriting '%s':%s\n",
+													OPTS.name, path, strerror(errno));
+									return -1;
+								}
 							}
 						} else {
 							fprintf(stderr, "%s: failed creating directory '%s': %s\n", OPTS.name, path, strerror(errno));
@@ -248,8 +256,10 @@ int main(int argc, char *argv[]) {
 
 	char *source_path = argv[optind];
 	optind++; // optind now on first DESTINATION argument
-	for (int i = 0; i < argc-optind; i++) {
-		OPTS.dest[i] = argv[optind+i];
+	for (int i = 0; i < argc - optind; i++) {
+		size_t dest_len = strlen(argv[optind + i]);
+		OPTS.dest[i] = argv[optind + i];
+		if (OPTS.dest[i][dest_len - 1] == '/') OPTS.dest[i][dest_len - 1] = '\0'; // remove trailing slash
 	}
 
 	if (!OPTS.force) {
@@ -297,7 +307,7 @@ int main(int argc, char *argv[]) {
 	if (OPTS.verbose) {
 		fprintf(stdout, "Created %i destinations:\n", OPTS.dest_num);
 		for (int i = 0; i < OPTS.dest_num; i++) {
-			fprintf(stdout, "\t%s\n", argv[i+optind]);
+			fprintf(stdout, "\t%s\n", argv[i + optind]);
 		}
 	}
 	exit(EXIT_SUCCESS);
