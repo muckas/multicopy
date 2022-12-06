@@ -1,5 +1,5 @@
 #define PROGRAM_NAME "multicopy"
-#define VERSION "2.2"
+#define VERSION "2.3"
 
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200112L
@@ -15,13 +15,25 @@
 #include <ftw.h>
 #include <limits.h>
 
+struct Stats {
+	int copied_files;
+	int total_files;
+	int files_read;
+	int files_created;
+	int dirs_read;
+	int dirs_created;
+	int symlinks_read;
+	int symlinks_created;
+	size_t bytes_read;
+	size_t bytes_written;
+} STATS; //Global struct
+
 struct Options {
 	char *name;
 	bool force;
 	bool progress;
+	bool stats;
 	bool verbose;
-	int copied_files;
-	int total_files;
 	int dest_num;
 	char *dest[];
 } OPTS; // Global struct
@@ -40,8 +52,30 @@ If SOURCE is a directory - recursively copies a directory (symlinks are copied, 
 	-h	display this help and exit\n\
 	-f	force copy even if destination files exist (overwrites files)\n\
 	-p	show progress (persent copied), if copying directory, displays number of files\n\
+	-s	show stats at the end (files opened/created, bytes read/written)\n\
 	-v	be verbose\n\
 ");
+}
+
+void print_stats() {
+	fprintf(stdout, "Opened %i dirs, %i files, %i symlinks\n",
+			STATS.dirs_read, STATS.files_read, STATS.symlinks_read);
+	fprintf(stdout, "Created %i dirs, %i files, %i symlinks\n",
+			STATS.dirs_created, STATS.files_created, STATS.symlinks_created);
+	char *tsize_read;
+	char *tsize_written;
+	double size_read;
+	double size_written;
+	size_read = STATS.bytes_read; tsize_read = " bytes";
+	if (size_read > 1024) { size_read /= 1024; tsize_read = "Kib"; }
+	if (size_read > 1024) { size_read /= 1024; tsize_read = "Mib"; }
+	if (size_read > 1024) { size_read /= 1024; tsize_read = "Gib"; }
+	size_written = STATS.bytes_written; tsize_written = " bytes";
+	if (size_written> 1024) { size_written /= 1024; tsize_written = "Kib"; }
+	if (size_written> 1024) { size_written /= 1024; tsize_written = "Mib"; }
+	if (size_written> 1024) { size_written /= 1024; tsize_written = "Gib"; }
+	fprintf(stdout, "%.2f%s read, %.2f%s written\n",
+			size_read, tsize_read, size_written, tsize_written);
 }
 
 int copy_file(const char *source_path, const struct stat *source_stat, char *dest[]) {
@@ -50,8 +84,9 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 	int source_fd = open(source_path, O_RDONLY);
 	if (source_fd < 0) {
 		fprintf(stderr, "%s: cannot read '%s': %s\n", OPTS.name, source_path, strerror(errno));
-		exit(EXIT_FAILURE);
+		return -1;
 	}
+	if (OPTS.stats) STATS.files_read++;
 
 	// Get file descriptors and allocate space for new files
 	int dest_fds[OPTS.dest_num];
@@ -61,6 +96,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			fprintf(stderr, "%s: cannot create regular file '%s': %s\n", OPTS.name, dest[i], strerror(errno));
 			return -1;
 		}
+		if (OPTS.stats) STATS.files_created++;
 		int err = posix_fallocate(dest_fds[i], 0, source_stat->st_size);
 		if ( err != 0) {
 			fprintf(stderr, "%s: cannot allocate space for '%s': %s\n", OPTS.name, dest[i], strerror(err));
@@ -77,7 +113,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 	// Copying files
 	char buf[8192];
 	ssize_t total_read = 0;
-	if (OPTS.progress) fprintf(stdout, "(%i/%i) Progress:  0%%", OPTS.copied_files, OPTS.total_files);
+	if (OPTS.progress) fprintf(stdout, "(%i/%i) Progress:  0%%", STATS.copied_files, STATS.total_files);
 	while (1) {
 		ssize_t bytes_read = read(source_fd, &buf[0], sizeof(buf));
 		if (bytes_read == -1) {
@@ -85,6 +121,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			return -1;
 		}
 		if (!bytes_read) break; // Source file ended
+		if (OPTS.stats) STATS.bytes_read += bytes_read;
 
 		for (int i = 0; i < OPTS.dest_num; i++) {
 			ssize_t bytes_written = write(dest_fds[i], &buf[0], bytes_read);
@@ -92,6 +129,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 				fprintf(stderr, "%s: error writing %s: %s\n", OPTS.name, dest[i], strerror(errno));
 				return -1;
 			}
+			if (OPTS.stats) STATS.bytes_written += bytes_written;
 			if (bytes_written != bytes_read) {
 				fprintf(stderr, "%s: error: bytes_written not equal to bytes_read: file %s\n", OPTS.name, dest[i]);
 				return -1;
@@ -118,8 +156,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 
 int count_dir_files(const char *entry_path, const struct stat *entry_stat, int tflag, struct FTW *ftwbuf) {
 	if (tflag == FTW_F) {
-		OPTS.total_files++;
-		fprintf(stdout, "\rTotal files: %i", OPTS.total_files);
+		STATS.total_files++;
 	}
 	return 0;
 }
@@ -139,6 +176,16 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 	switch (tflag) {
 		case(FTW_D): // Directory
 		case(FTW_SL): // Symbolic link
+			if (OPTS.stats) {
+				switch(tflag) {
+					case(FTW_D):
+						STATS.dirs_read++;
+						break;
+					case(FTW_SL):
+						STATS.symlinks_read++;
+						break;
+				}
+			}
 			for (int i = 0; i < OPTS.dest_num; i++) {
 				// Creating destination path
 				const char *rel_path = relative_path(entry_path, ftwbuf->level - 1); // (level - 1) to change root directory name
@@ -165,6 +212,8 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 										fprintf(stderr, "%s: cannot mkdir '%s':%s\n",
 														OPTS.name, path, strerror(errno));
 										return -1;
+									} else { // directory created
+										if (OPTS.stats) STATS.dirs_created++;
 									}
 								} else { //failed to remove file at 'path'
 									fprintf(stderr, "%s: cannot mkdir, failed overwriting '%s':%s\n",
@@ -176,6 +225,8 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 							fprintf(stderr, "%s: failed creating directory '%s': %s\n", OPTS.name, path, strerror(errno));
 							return -1;
 						}
+					} else { // directory created
+						if (OPTS.stats) STATS.dirs_created++;
 					}
 
 				} else { // entry_path is a symbolic link
@@ -200,6 +251,8 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 					if (symlink(target, path) == -1) {
 						fprintf(stderr, "%s: failed creating symbolic link '%s': %s\n", OPTS.name, path, strerror(errno));
 						return -1;
+					} else { // symlink created
+						if (OPTS.stats) STATS.symlinks_created++;
 					}
 					free(target);
 				}
@@ -222,7 +275,7 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 					}
 					if (dest[i][path_len - 1] == '/') dest[i][path_len - 1] = '\0'; // remove trailing slash
 				}
-				OPTS.copied_files++;
+				STATS.copied_files++;
 				int copy_result = copy_file(entry_path, entry_stat, dest);
 				for (int i = 0; i < OPTS.dest_num; i++) { 
 					free(dest[i]); // free allocated memory
@@ -243,14 +296,24 @@ int main(int argc, char *argv[]) {
 	OPTS.name = argv[0];
 	OPTS.force = false;
 	OPTS.progress = false;
+	OPTS.stats = false;
 	OPTS.verbose = false;
-	OPTS.copied_files = 0;
-	OPTS.total_files = 0;
 	OPTS.dest_num = 0;
+
+	STATS.copied_files = 0;
+	STATS.total_files = 0;
+	STATS.files_read = 0;
+	STATS.files_created = 0;
+	STATS.dirs_read = 0;
+	STATS.dirs_created = 0;
+	STATS.symlinks_read = 0;
+	STATS.symlinks_created = 0;
+	STATS.bytes_read = 0;
+	STATS.bytes_written = 0;
 
 	// Parse command line arguments
 	int opt;
-	while ((opt = getopt(argc, argv, ":hfpv")) != -1) {
+	while ((opt = getopt(argc, argv, ":hfpsv")) != -1) {
 		switch(opt) {
 			case 'h':
 				print_help(OPTS.name);
@@ -261,6 +324,9 @@ int main(int argc, char *argv[]) {
 				break;
 			case 'p':
 				OPTS.progress = true;
+				break;
+			case 's':
+				OPTS.stats = true;
 				break;
 			case 'v':
 				OPTS.verbose = true;
@@ -322,17 +388,15 @@ int main(int argc, char *argv[]) {
 		for (int i = 0; i < OPTS.dest_num; i++) {
 			dest[i] = OPTS.dest[i];
 		}
-		OPTS.total_files = 1;
-		OPTS.copied_files = 1;
+		STATS.total_files = 1;
+		STATS.copied_files = 1;
 		int copy_result = copy_file(source_path, &statbuff, dest);
 		if (copy_result != 0) exit(EXIT_FAILURE);
 
 	} else if (S_ISDIR(statbuff.st_mode)) { // SOURCE is directory
 		if (OPTS.progress) {
 			// Counting files
-			fprintf(stdout, "Total files: 0");
 			int nftw_result = nftw(source_path, count_dir_files, 10, FTW_PHYS); // FTW_PHYS (no symlincs)
-			fprintf(stdout, "\n");
 			if (nftw_result == -1) {
 				fprintf(stderr, "%s: nftw error on counting files: %s\n", OPTS.name, strerror(errno));
 				exit(EXIT_FAILURE);
@@ -350,8 +414,9 @@ int main(int argc, char *argv[]) {
 		exit(EXIT_FAILURE);
 	}
 
+	if (OPTS.stats) print_stats();
 	if (OPTS.verbose) {
-		fprintf(stdout, "Created %i destinations:\n", OPTS.dest_num);
+		fprintf(stdout, "Copied to %i destinations:\n", OPTS.dest_num);
 		for (int i = 0; i < OPTS.dest_num; i++) {
 			fprintf(stdout, "\t%s\n", argv[i + optind]);
 		}
