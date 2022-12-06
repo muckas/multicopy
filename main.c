@@ -251,15 +251,22 @@ int main(int argc, char *argv[]) {
 	if (OPTS.dest_num < 1) {
 		fprintf(stderr, "%s: not enough arguments\n", OPTS.name);
 		print_usage(OPTS.name);
-		exit(EXIT_SUCCESS);
+		exit(EXIT_FAILURE);
 	}
 
+	size_t source_len = strlen(argv[optind]);
 	char *source_path = argv[optind];
+	if (source_path[source_len - 1] == '/') source_path[source_len - 1] = '\0'; // remove trailing slash
+
 	optind++; // optind now on first DESTINATION argument
 	for (int i = 0; i < argc - optind; i++) {
 		size_t dest_len = strlen(argv[optind + i]);
 		OPTS.dest[i] = argv[optind + i];
 		if (OPTS.dest[i][dest_len - 1] == '/') OPTS.dest[i][dest_len - 1] = '\0'; // remove trailing slash
+		if (strcmp(OPTS.dest[i], source_path) == 0) { // DEST is the same as SOURCE
+			fprintf(stderr, "%s: source and destination cannot be the same: '%s'\n", OPTS.name, OPTS.dest[i]);
+			exit(EXIT_FAILURE);
+		}
 	}
 
 	if (!OPTS.force) {
