@@ -20,9 +20,11 @@ struct Options {
 	bool force;
 	bool progress;
 	bool verbose;
+	int copied_files;
+	int total_files;
 	int dest_num;
 	char *dest[];
-} OPTS = {PROGRAM_NAME, false, false, false, 0, NULL};
+} OPTS; // Global struct
 
 void print_usage(char *program_name) {
 	fprintf(stdout, "Usage: %s [OPTION]... SOURCE DESTINATION...\n", program_name);
@@ -37,7 +39,7 @@ If SOURCE is a directory - recursively copies a directory (symlinks are copied, 
 \n\
 	-h	display this help and exit\n\
 	-f	force copy even if destination files exist (overwrites files)\n\
-	-p	show progress (persent copied)\n\
+	-p	show progress (persent copied), if copying directory, displays number of files\n\
 	-v	be verbose\n\
 ");
 }
@@ -75,7 +77,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 	// Copying files
 	char buf[8192];
 	ssize_t total_read = 0;
-	if (OPTS.progress) fprintf(stdout, "Progress:  0%%");
+	if (OPTS.progress) fprintf(stdout, "(%i/%i) Progress:  0%%", OPTS.copied_files, OPTS.total_files);
 	while (1) {
 		ssize_t bytes_read = read(source_fd, &buf[0], sizeof(buf));
 		if (bytes_read == -1) {
@@ -101,19 +103,36 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			fprintf(stdout, "\b\b\b\b%3.0f%%", ((float)total_read / (float)source_stat->st_size) * 100);
 		}
 	}
+	// Close file descriptors
+	if (close(source_fd) == -1) {
+		fprintf(stderr, "%s: error closing file descriptor %i '%s': %s\n", OPTS.name, source_fd, source_path, strerror(errno));
+	}
+	for (int i = 0; i < OPTS.dest_num; i++) {
+		if (close(dest_fds[i]) == -1) {
+			fprintf(stderr, "%s: error closing file descriptor %i '%s': %s\n", OPTS.name, source_fd, dest[i], strerror(errno));
+		}
+	}
 	if (OPTS.progress) fprintf(stdout, "\r");
+	return 0;
+}
+
+int count_dir_files(const char *entry_path, const struct stat *entry_stat, int tflag, struct FTW *ftwbuf) {
+	if (tflag == FTW_F) {
+		OPTS.total_files++;
+		fprintf(stdout, "\rTotal files: %i", OPTS.total_files);
+	}
 	return 0;
 }
 
 const char *relative_path(const char *entry_path, int level) {
 	size_t path_len = strlen(entry_path);
-	size_t path_pos = path_len;
+	size_t path_pos = path_len - 1;
 	int count = 0;
 	while (path_pos >= 0 && count <= level) {
 		if (entry_path[path_pos] == '/') count++;
 		path_pos--;
 	}
-	return &entry_path[path_pos + 2];
+	return &entry_path[path_pos + 1];
 }
 
 int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int tflag, struct FTW *ftwbuf) {
@@ -136,7 +155,7 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 					if (mkdir(path, entry_stat->st_mode) == -1) {
 						if (errno == EEXIST) { // path exists, checking if it's a directory
 							struct stat sb;
-							if (lstat(path, &sb) < 0) {
+							if (lstat(path, &sb) == -1) {
 								fprintf(stderr, "%s: cannot stat '%s': %s\n", OPTS.name, path, strerror(errno));
 								return -1;
 							}
@@ -203,6 +222,7 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 					}
 					if (dest[i][path_len - 1] == '/') dest[i][path_len - 1] = '\0'; // remove trailing slash
 				}
+				OPTS.copied_files++;
 				int copy_result = copy_file(entry_path, entry_stat, dest);
 				for (int i = 0; i < OPTS.dest_num; i++) { 
 					free(dest[i]); // free allocated memory
@@ -221,6 +241,12 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 
 int main(int argc, char *argv[]) {
 	OPTS.name = argv[0];
+	OPTS.force = false;
+	OPTS.progress = false;
+	OPTS.verbose = false;
+	OPTS.copied_files = 0;
+	OPTS.total_files = 0;
+	OPTS.dest_num = 0;
 
 	// Parse command line arguments
 	int opt;
@@ -287,7 +313,7 @@ int main(int argc, char *argv[]) {
 
 	// Stat SOURCE
 	struct stat statbuff;
-	if (lstat(source_path, &statbuff) < 0) {
+	if (lstat(source_path, &statbuff) == -1) {
 		fprintf(stderr, "%s: cannot stat '%s': %s\n", OPTS.name, source_path, strerror(errno));
 		exit(EXIT_FAILURE);
 	}
@@ -296,10 +322,23 @@ int main(int argc, char *argv[]) {
 		for (int i = 0; i < OPTS.dest_num; i++) {
 			dest[i] = OPTS.dest[i];
 		}
+		OPTS.total_files = 1;
+		OPTS.copied_files = 1;
 		int copy_result = copy_file(source_path, &statbuff, dest);
 		if (copy_result != 0) exit(EXIT_FAILURE);
 
 	} else if (S_ISDIR(statbuff.st_mode)) { // SOURCE is directory
+		if (OPTS.progress) {
+			// Counting files
+			fprintf(stdout, "Total files: 0");
+			int nftw_result = nftw(source_path, count_dir_files, 10, FTW_PHYS); // FTW_PHYS (no symlincs)
+			fprintf(stdout, "\n");
+			if (nftw_result == -1) {
+				fprintf(stderr, "%s: nftw error on counting files: %s\n", OPTS.name, strerror(errno));
+				exit(EXIT_FAILURE);
+			}
+		}
+		//Copying files
 		int nftw_result = nftw(source_path, handle_dir_entry, 10, FTW_PHYS); // FTW_PHYS (no symlincs)
 		if (nftw_result == -1) {
 			fprintf(stderr, "%s: nftw error: %s\n", OPTS.name, strerror(errno));
