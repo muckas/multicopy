@@ -1,5 +1,5 @@
 #define PROGRAM_NAME "multicopy"
-#define VERSION "2.3"
+#define VERSION "2.4"
 
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200112L
@@ -34,6 +34,7 @@ struct Options {
 	bool progress;
 	bool stats;
 	bool verbose;
+	int bufsize_kb;
 	int dest_num;
 	char *dest[];
 } OPTS; // Global struct
@@ -49,11 +50,12 @@ void print_help(char *program_name) {
 Copy SOURCE to multiple DESTINATION(s)\n\
 If SOURCE is a directory - recursively copies a directory (symlinks are copied, not followed)\n\
 \n\
-	-h	display this help and exit\n\
-	-f	force copy even if destination files exist (overwrites files)\n\
-	-p	show progress (persent copied), if copying directory, displays number of files\n\
-	-s	show stats at the end (files opened/created, bytes read/written)\n\
-	-v	be verbose\n\
+	-h\t\tdisplay this help and exit\n\
+	-f\t\tforce copy even if destination files exist (overwrites files)\n\
+	-p\t\tshow progress (persent copied), if copying directory, displays number of files\n\
+	-s\t\tshow stats at the end (files opened/created, bytes read/written)\n\
+	-v\t\tbe verbose\n\
+	-b <size>\tbuffer size in kilobytes, default=8\n\
 ");
 }
 
@@ -111,7 +113,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 	}
 
 	// Copying files
-	char buf[8192];
+	char buf[OPTS.bufsize_kb * 1024];
 	ssize_t total_read = 0;
 	if (OPTS.progress) fprintf(stdout, "(%i/%i) Progress:  0%%", STATS.copied_files, STATS.total_files);
 	while (1) {
@@ -298,6 +300,7 @@ int main(int argc, char *argv[]) {
 	OPTS.progress = false;
 	OPTS.stats = false;
 	OPTS.verbose = false;
+	OPTS.bufsize_kb = 8;
 	OPTS.dest_num = 0;
 
 	STATS.copied_files = 0;
@@ -313,7 +316,7 @@ int main(int argc, char *argv[]) {
 
 	// Parse command line arguments
 	int opt;
-	while ((opt = getopt(argc, argv, ":hfpsv")) != -1) {
+	while ((opt = getopt(argc, argv, ":hfpsvb:")) != -1) {
 		switch(opt) {
 			case 'h':
 				print_help(OPTS.name);
@@ -330,6 +333,19 @@ int main(int argc, char *argv[]) {
 				break;
 			case 'v':
 				OPTS.verbose = true;
+				break;
+			case 'b':
+				OPTS.bufsize_kb = atoi(optarg);
+				if (OPTS.bufsize_kb <= 0) {
+					fprintf(stderr, "%s: invalid buffer size -- '%s'\n", OPTS.name, optarg);
+					fprintf(stdout, "Try '%s -h' for more information'\n", OPTS.name);
+					exit(EXIT_FAILURE);
+				}
+				break;
+			case ':':
+				fprintf(stderr, "%s: option '%c' requires an argument\n", OPTS.name, optopt);
+				fprintf(stdout, "Try '%s -h' for more information'\n", OPTS.name);
+				exit(EXIT_FAILURE);
 				break;
 			case '?':
 				fprintf(stderr, "%s: invalid option -- '%c'\n", OPTS.name, optopt);
