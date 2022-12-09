@@ -1,5 +1,5 @@
 #define PROGRAM_NAME "multicopy"
-#define VERSION "2.6"
+#define VERSION "2.7"
 
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200112L
@@ -171,7 +171,8 @@ const char *relative_path(const char *entry_path, int level) {
 		path_pos--;
 		if (entry_path[path_pos] == '/') count++;
 	}
-	return &entry_path[path_pos + 1];
+	if (entry_path[path_pos] == '/') path_pos++; // remove leading slash
+	return &entry_path[path_pos];
 }
 
 int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int tflag, struct FTW *ftwbuf) {
