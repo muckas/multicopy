@@ -1,5 +1,5 @@
 #define PROGRAM_NAME "multicopy"
-#define VERSION "2.4"
+#define VERSION "2.5"
 
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200112L
@@ -165,11 +165,11 @@ int count_dir_files(const char *entry_path, const struct stat *entry_stat, int t
 
 const char *relative_path(const char *entry_path, int level) {
 	size_t path_len = strlen(entry_path);
-	size_t path_pos = path_len - 1;
+	size_t path_pos = path_len;
 	int count = 0;
 	while (path_pos >= 0 && count <= level) {
-		if (entry_path[path_pos] == '/') count++;
 		path_pos--;
+		if (entry_path[path_pos] == '/') count++;
 	}
 	return &entry_path[path_pos + 1];
 }
@@ -367,13 +367,30 @@ int main(int argc, char *argv[]) {
 	if (source_path[source_len - 1] == '/') source_path[source_len - 1] = '\0'; // remove trailing slash
 
 	optind++; // optind now on first DESTINATION argument
-	for (int i = 0; i < argc - optind; i++) {
+	for (int i = 0; i < OPTS.dest_num; i++) {
 		size_t dest_len = strlen(argv[optind + i]);
 		OPTS.dest[i] = argv[optind + i];
 		if (OPTS.dest[i][dest_len - 1] == '/') OPTS.dest[i][dest_len - 1] = '\0'; // remove trailing slash
 		if (strcmp(OPTS.dest[i], source_path) == 0) { // DEST is the same as SOURCE
 			fprintf(stderr, "%s: source and destination cannot be the same: '%s'\n", OPTS.name, OPTS.dest[i]);
 			exit(EXIT_FAILURE);
+		}
+	}
+
+	// Same name copy if DEST is a directory
+	for (int i = 0; i < OPTS.dest_num; i++) {
+		struct stat buff;
+		if (stat(OPTS.dest[i], &buff) == 0) {
+			if (S_ISDIR(buff.st_mode)) { // DEST is directory, appending SOURCE name
+				const char *source_name = relative_path(source_path, 0);
+				char * dest = OPTS.dest[i];
+				size_t path_len = snprintf(NULL, 0, "%s/%s", dest, source_name);
+				OPTS.dest[i] = malloc(path_len + 1);
+				if (snprintf(OPTS.dest[i], path_len + 1, "%s/%s", dest, source_name) != path_len) {
+					fprintf(stderr, "%s: snprintf result not equal %lu for '%s'\n", OPTS.name, path_len, dest);
+					return -1;
+				}
+			}
 		}
 	}
 
@@ -434,8 +451,14 @@ int main(int argc, char *argv[]) {
 	if (OPTS.verbose) {
 		fprintf(stdout, "Copied to %i destinations:\n", OPTS.dest_num);
 		for (int i = 0; i < OPTS.dest_num; i++) {
-			fprintf(stdout, "\t%s\n", argv[i + optind]);
+			fprintf(stdout, "\t%s\n", OPTS.dest[i]);
 		}
 	}
+
+	// Free allocated destinations
+	for (int i = 0; i < OPTS.dest_num; i++) {
+		free(OPTS.dest[i]); 
+	}
+
 	exit(EXIT_SUCCESS);
 }
