@@ -1,5 +1,5 @@
 #define PROGRAM_NAME "multicopy"
-#define VERSION "2.5"
+#define VERSION "2.6"
 
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200112L
@@ -377,6 +377,10 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+	char *allocated_memory[OPTS.dest_num]; // Keeps track of dynamically allocated memory
+	for (int i = 0; i < OPTS.dest_num; i++) {
+		allocated_memory[i] = NULL;
+	}
 	// Same name copy if DEST is a directory
 	for (int i = 0; i < OPTS.dest_num; i++) {
 		struct stat buff;
@@ -386,6 +390,7 @@ int main(int argc, char *argv[]) {
 				char * dest = OPTS.dest[i];
 				size_t path_len = snprintf(NULL, 0, "%s/%s", dest, source_name);
 				OPTS.dest[i] = malloc(path_len + 1);
+				allocated_memory[i] = OPTS.dest[i]; // this memory is freed at the end
 				if (snprintf(OPTS.dest[i], path_len + 1, "%s/%s", dest, source_name) != path_len) {
 					fprintf(stderr, "%s: snprintf result not equal %lu for '%s'\n", OPTS.name, path_len, dest);
 					return -1;
@@ -457,7 +462,7 @@ int main(int argc, char *argv[]) {
 
 	// Free allocated destinations
 	for (int i = 0; i < OPTS.dest_num; i++) {
-		free(OPTS.dest[i]); 
+		free(allocated_memory[i]); 
 	}
 
 	exit(EXIT_SUCCESS);
