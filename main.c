@@ -36,6 +36,7 @@ struct Options {
 	bool stats;
 	bool verbose;
 	bool allocate;
+	bool fatal_errors;
 	int bufsize_kb;
 	int dest_num;
 	char *dest[];
@@ -58,6 +59,7 @@ int main(int argc, char *argv[]) {
 	OPTS.stats = false;
 	OPTS.verbose = false;
 	OPTS.allocate = false;
+	OPTS.fatal_errors = false;
 	OPTS.bufsize_kb = 8;
 	OPTS.dest_num = 0;
 
@@ -74,6 +76,7 @@ int main(int argc, char *argv[]) {
 
 	enum longopt {
 		allocate,
+		fatal_errors,
 	};
 
 	static struct option long_options[] = {
@@ -84,12 +87,16 @@ int main(int argc, char *argv[]) {
 		{"verbose", no_argument, 0, 'v'},
 		{"buffsize", required_argument, 0, 'b'},
 		{"allocate", no_argument, 0, allocate},
+		{"fatal-errors", no_argument, 0, fatal_errors},
 	};
 	// Parse command line arguments
 	int opt;
 	int option_index = 0;
 	while ((opt = getopt_long(argc, argv, ":hfpsvb:", long_options, NULL)) != -1) {
 		switch(opt) {
+			case fatal_errors:
+				OPTS.fatal_errors = true;
+				break;
 			case allocate:
 				OPTS.allocate = true;
 				break;
@@ -269,6 +276,8 @@ If SOURCE is a directory - recursively copies a directory (symlinks are copied, 
 \tbuffer size in kilobytes, default=8\n\
 --allocate\n\
 \tallocate space for files before copying\n\
+--fatal-errors\n\
+\ttreat every error as fatal and immediately exit\n\
 ");
 }
 
@@ -299,7 +308,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 	int source_fd = open(source_path, O_RDONLY);
 	if (source_fd < 0) {
 		fprintf(stderr, "%s: cannot read '%s': %s\n", OPTS.name, source_path, strerror(errno));
-		return -1;
+		if (OPTS.fatal_errors) {return -1;} else {return 0;}
 	}
 	if (OPTS.stats) STATS.files_read++;
 
@@ -309,7 +318,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 		dest_fds[i] = open(dest[i], O_CREAT|O_WRONLY|O_TRUNC, source_stat->st_mode);
 		if (dest_fds[i] < 0) {
 			fprintf(stderr, "%s: cannot create regular file '%s': %s\n", OPTS.name, dest[i], strerror(errno));
-			return -1;
+			if (OPTS.fatal_errors) {return -1;} else {return 0;}
 		}
 		if (OPTS.stats) STATS.files_created++;
 		if (OPTS.allocate) {
@@ -317,7 +326,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			int err = posix_fallocate(dest_fds[i], 0, source_stat->st_size);
 			if ( err != 0) {
 				fprintf(stderr, "%s: cannot allocate space for '%s': %s\n", OPTS.name, dest[i], strerror(err));
-				return -1;
+				if (OPTS.fatal_errors) {return -1;} else {return 0;}
 			}
 		}
 	}
@@ -325,7 +334,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 	if (OPTS.verbose) fprintf(stdout, "Copying %s to %i destinations...\n", source_path, OPTS.dest_num);
 	if (posix_fadvise(source_fd, 0, 0, POSIX_FADV_SEQUENTIAL) != 0) {
 		fprintf(stderr, "%s: posix_fadvice on '%s': %s\n", OPTS.name, source_path, strerror(errno));
-		return -1;
+		if (OPTS.fatal_errors) {return -1;} else {return 0;}
 	}
 
 	// Copying files
@@ -336,7 +345,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 		ssize_t bytes_read = read(source_fd, &buf[0], sizeof(buf));
 		if (bytes_read == -1) {
 			fprintf(stderr, "%s: error reading %s: %s\n", OPTS.name, source_path, strerror(errno));
-			return -1;
+			if (OPTS.fatal_errors) {return -1;} else {return 0;}
 		}
 		if (!bytes_read) break; // Source file ended
 		if (OPTS.stats) STATS.bytes_read += bytes_read;
@@ -345,12 +354,12 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			ssize_t bytes_written = write(dest_fds[i], &buf[0], bytes_read);
 			if (bytes_written == -1) {
 				fprintf(stderr, "%s: error writing %s: %s\n", OPTS.name, dest[i], strerror(errno));
-				return -1;
+				if (OPTS.fatal_errors) {return -1;} else {return 0;}
 			}
 			if (OPTS.stats) STATS.bytes_written += bytes_written;
 			if (bytes_written != bytes_read) {
-				fprintf(stderr, "%s: error: bytes_written not equal to bytes_read: file %s\n", OPTS.name, dest[i]);
-				return -1;
+				fprintf(stderr, "%s: error: bytes_written not equal to bytes_read: '%s'\n", OPTS.name, dest[i]);
+				if (OPTS.fatal_errors) {return -1;} else {return 0;}
 			}
 		}
 		// Display progress
@@ -412,7 +421,7 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 				char path[path_len + 1];
 				if (snprintf(path, path_len + 1, "%s/%s", OPTS.dest[i], rel_path) != path_len) {
 					fprintf(stderr, "%s: snprintf result not equal %i for '%s'\n", OPTS.name, (int)path_len, path);
-					return -1;
+					if (OPTS.fatal_errors) {return -1;} else {return 0;}
 				}
 				if (path[path_len - 1] == '/') path[path_len - 1] = '\0'; // remove trailing slash
 
@@ -423,26 +432,26 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 							struct stat sb;
 							if (lstat(path, &sb) == -1) {
 								fprintf(stderr, "%s: cannot stat '%s': %s\n", OPTS.name, path, strerror(errno));
-								return -1;
+								if (OPTS.fatal_errors) {return -1;} else {return 0;}
 							}
 							if (!S_ISDIR(sb.st_mode)) { // it's not a directory, removing it
 								if (remove(path) == 0) { // file at 'path' removed
 									if (mkdir(path, entry_stat->st_mode) == -1) {
 										fprintf(stderr, "%s: cannot mkdir '%s':%s\n",
 														OPTS.name, path, strerror(errno));
-										return -1;
+										if (OPTS.fatal_errors) {return -1;} else {return 0;}
 									} else { // directory created
 										if (OPTS.stats) STATS.dirs_created++;
 									}
 								} else { //failed to remove file at 'path'
 									fprintf(stderr, "%s: cannot mkdir, failed overwriting '%s':%s\n",
 													OPTS.name, path, strerror(errno));
-									return -1;
+									if (OPTS.fatal_errors) {return -1;} else {return 0;}
 								}
 							}
 						} else {
 							fprintf(stderr, "%s: failed creating directory '%s': %s\n", OPTS.name, path, strerror(errno));
-							return -1;
+							if (OPTS.fatal_errors) {return -1;} else {return 0;}
 						}
 					} else { // directory created
 						if (OPTS.stats) STATS.dirs_created++;
@@ -458,18 +467,21 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 					char *target = malloc(bufsize);
 					if (readlink(entry_path, target, bufsize) == -1) {
 						fprintf(stderr, "%s: failed reading symbolic link '%s': %s\n", OPTS.name, entry_path, strerror(errno));
-						return -1;
+						free(target);
+						if (OPTS.fatal_errors) {return -1;} else {return 0;}
 					}
 					target[bufsize - 1] = '\0'; // add nul terminator to the end of the string
 					if (remove(path) == -1) {
 						if (errno != ENOENT) { // ignore errors if path does not exist
 							fprintf(stderr, "%s: failed removing symbolic link '%s': %s\n", OPTS.name, path, strerror(errno));
-							return -1;
+							free(target);
+							if (OPTS.fatal_errors) {return -1;} else {return 0;}
 						}
 					}
 					if (symlink(target, path) == -1) {
 						fprintf(stderr, "%s: failed creating symbolic link '%s': %s\n", OPTS.name, path, strerror(errno));
-						return -1;
+						free(target);
+						if (OPTS.fatal_errors) {return -1;} else {return 0;}
 					} else { // symlink created
 						if (OPTS.stats) STATS.symlinks_created++;
 					}
@@ -490,7 +502,7 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 					dest[i] = malloc(path_len + 1);
 					if (snprintf(dest[i], path_len + 1, "%s/%s", OPTS.dest[i], rel_path) != path_len) {
 						fprintf(stderr, "%s: snprintf result not equal %i for '%s'\n", OPTS.name, (int)path_len, dest[i]);
-						return -1;
+						if (OPTS.fatal_errors) {return -1;} else {return 0;}
 					}
 					if (dest[i][path_len - 1] == '/') dest[i][path_len - 1] = '\0'; // remove trailing slash
 				}
