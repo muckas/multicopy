@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #include <ftw.h>
 #include <limits.h>
+#include <getopt.h>
 
 struct Stats {
 	int copied_files;
@@ -69,9 +70,18 @@ int main(int argc, char *argv[]) {
 	STATS.bytes_read = 0;
 	STATS.bytes_written = 0;
 
+	static struct option long_options[] = {
+		{"force", no_argument, 0, 'f'},
+		{"progress", no_argument, 0, 'p'},
+		{"stats", no_argument, 0, 's'},
+		{"verbose", no_argument, 0, 'v'},
+		{"buffsize", required_argument, 0, 'b'},
+		{"help", no_argument, 0, 'h'},
+	};
 	// Parse command line arguments
 	int opt;
-	while ((opt = getopt(argc, argv, ":hfpsvb:")) != -1) {
+	int option_index = 0;
+	while ((opt = getopt_long(argc, argv, ":hfpsvb:", long_options, NULL)) != -1) {
 		switch(opt) {
 			case 'h':
 				print_help(OPTS.name);
@@ -235,12 +245,18 @@ void print_help(char *program_name) {
 Copy SOURCE to multiple DESTINATION(s)\n\
 If SOURCE is a directory - recursively copies a directory (symlinks are copied, not followed)\n\
 \n\
-	-h\t\tdisplay this help and exit\n\
-	-f\t\tforce copy even if destination files exist (overwrites files)\n\
-	-p\t\tshow progress (persent copied), if copying directory, displays number of files\n\
-	-s\t\tshow stats at the end (files opened/created, bytes read/written)\n\
-	-v\t\tbe verbose\n\
-	-b <size>\tbuffer size in kilobytes, default=8\n\
+-f --force\n\
+\tforce copy even if destination files exist (overwrites files)\n\
+-p --progress\n\
+\tshow progress (persent copied), if copying directory, displays number of files\n\
+-s --stats\n\
+\tshow stats at the end (files opened/created, bytes read/written)\n\
+-v --verbose\n\
+\tbe verbose\n\
+-b --buffsize <size>\n\
+\tbuffer size in kilobytes, default=8\n\
+-h --help\n\
+\tdisplay this help and exit\n\
 ");
 }
 
