@@ -27,6 +27,8 @@ struct Stats {
 	int symlinks_created;
 	size_t bytes_read;
 	size_t bytes_written;
+	size_t total_size;
+	char * str_total_size;
 } STATS; //Global struct
 
 struct Options {
@@ -42,6 +44,7 @@ struct Options {
 	char *dest[];
 } OPTS; // Global struct
 
+char *human_readable(size_t bytes);
 void print_usage(char *program_name);
 void print_help(char *program_name);
 void print_stats();
@@ -71,14 +74,15 @@ int main(int argc, char *argv[]) {
 	STATS.dirs_created = 0;
 	STATS.symlinks_read = 0;
 	STATS.symlinks_created = 0;
+	STATS.total_size = 0;
 	STATS.bytes_read = 0;
 	STATS.bytes_written = 0;
+	STATS.str_total_size = NULL;
 
 	enum longopt {
 		allocate,
 		fatal_errors,
 	};
-
 	static struct option long_options[] = {
 		{"help", no_argument, 0, 'h'},
 		{"force", no_argument, 0, 'f'},
@@ -94,11 +98,11 @@ int main(int argc, char *argv[]) {
 	int option_index = 0;
 	while ((opt = getopt_long(argc, argv, ":hfpsvb:", long_options, NULL)) != -1) {
 		switch(opt) {
-			case fatal_errors:
-				OPTS.fatal_errors = true;
-				break;
 			case allocate:
 				OPTS.allocate = true;
+				break;
+			case fatal_errors:
+				OPTS.fatal_errors = true;
 				break;
 			case 'h':
 				print_help(OPTS.name);
@@ -171,7 +175,7 @@ int main(int argc, char *argv[]) {
 				const char *source_name = relative_path(source_path, 0);
 				char * dest = OPTS.dest[i];
 				size_t path_len = snprintf(NULL, 0, "%s/%s", dest, source_name);
-				OPTS.dest[i] = malloc(path_len + 1);
+				OPTS.dest[i] = malloc( (path_len + 1)* sizeof(char) );
 				allocated_memory[i] = OPTS.dest[i]; // this memory is freed at the end
 				if (snprintf(OPTS.dest[i], path_len + 1, "%s/%s", dest, source_name) != path_len) {
 					fprintf(stderr, "%s: snprintf result not equal %lu for '%s'\n", OPTS.name, path_len, dest);
@@ -210,6 +214,7 @@ int main(int argc, char *argv[]) {
 		}
 		STATS.total_files = 1;
 		STATS.copied_files = 1;
+		STATS.str_total_size = human_readable(statbuff.st_size); // malloc
 		int copy_result = copy_file(source_path, &statbuff, dest);
 		if (copy_result != 0) exit(EXIT_FAILURE);
 
@@ -221,6 +226,7 @@ int main(int argc, char *argv[]) {
 				fprintf(stderr, "%s: nftw error on counting files: %s\n", OPTS.name, strerror(errno));
 				exit(EXIT_FAILURE);
 			}
+			STATS.str_total_size = human_readable(STATS.total_size); // malloc
 		}
 		//Copying files
 		int nftw_result = nftw(source_path, handle_dir_entry, 10, FTW_PHYS); // FTW_PHYS (no symlincs)
@@ -246,10 +252,24 @@ int main(int argc, char *argv[]) {
 	for (int i = 0; i < OPTS.dest_num; i++) {
 		free(allocated_memory[i]); 
 	}
+	free(STATS.str_total_size);
 
 	exit(EXIT_SUCCESS);
 }
 
+
+char *human_readable(size_t bytes) { // allocates memory
+	char *tsize;
+	double size;
+	size = bytes; tsize = " bytes";
+	if (size > 1024) { size /= 1024; tsize = "Kib"; }
+	if (size > 1024) { size /= 1024; tsize = "Mib"; }
+	if (size > 1024) { size /= 1024; tsize = "Gib"; }
+	size_t str_size = snprintf(NULL, 0, "%f%s", size, tsize);
+	char *str = malloc( (str_size + 1) * sizeof(char) );
+	snprintf(str, str_size + 1, "%.2f%s", size, tsize);
+	return str;
+}
 
 void print_usage(char *program_name) {
 	fprintf(stdout, "Usage: %s [OPTION]... SOURCE DESTINATION...\n", program_name);
@@ -286,20 +306,11 @@ void print_stats() {
 			STATS.dirs_read, STATS.files_read, STATS.symlinks_read);
 	fprintf(stdout, "Created %i dirs, %i files, %i symlinks\n",
 			STATS.dirs_created, STATS.files_created, STATS.symlinks_created);
-	char *tsize_read;
-	char *tsize_written;
-	double size_read;
-	double size_written;
-	size_read = STATS.bytes_read; tsize_read = " bytes";
-	if (size_read > 1024) { size_read /= 1024; tsize_read = "Kib"; }
-	if (size_read > 1024) { size_read /= 1024; tsize_read = "Mib"; }
-	if (size_read > 1024) { size_read /= 1024; tsize_read = "Gib"; }
-	size_written = STATS.bytes_written; tsize_written = " bytes";
-	if (size_written> 1024) { size_written /= 1024; tsize_written = "Kib"; }
-	if (size_written> 1024) { size_written /= 1024; tsize_written = "Mib"; }
-	if (size_written> 1024) { size_written /= 1024; tsize_written = "Gib"; }
-	fprintf(stdout, "%.2f%s read, %.2f%s written\n",
-			size_read, tsize_read, size_written, tsize_written);
+	char *read = human_readable(STATS.bytes_read);
+	char *written = human_readable(STATS.bytes_written);
+	fprintf(stdout, "%s read, %s written\n", read, written);
+	free(read);
+	free(written);
 }
 
 int copy_file(const char *source_path, const struct stat *source_stat, char *dest[]) {
@@ -340,7 +351,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 	// Copying files
 	char buf[OPTS.bufsize_kb * 1024];
 	ssize_t total_read = 0;
-	if (OPTS.progress) fprintf(stdout, "(%i/%i) Progress:  0%%", STATS.copied_files, STATS.total_files);
+	int iter = 0;
 	while (1) {
 		ssize_t bytes_read = read(source_fd, &buf[0], sizeof(buf));
 		if (bytes_read == -1) {
@@ -348,7 +359,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			if (OPTS.fatal_errors) {return -1;} else {return 0;}
 		}
 		if (!bytes_read) break; // Source file ended
-		if (OPTS.stats) STATS.bytes_read += bytes_read;
+		STATS.bytes_read += bytes_read;
 
 		for (int i = 0; i < OPTS.dest_num; i++) {
 			ssize_t bytes_written = write(dest_fds[i], &buf[0], bytes_read);
@@ -356,7 +367,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 				fprintf(stderr, "%s: error writing %s: %s\n", OPTS.name, dest[i], strerror(errno));
 				if (OPTS.fatal_errors) {return -1;} else {return 0;}
 			}
-			if (OPTS.stats) STATS.bytes_written += bytes_written;
+			STATS.bytes_written += bytes_written;
 			if (bytes_written != bytes_read) {
 				fprintf(stderr, "%s: error: bytes_written not equal to bytes_read: '%s'\n", OPTS.name, dest[i]);
 				if (OPTS.fatal_errors) {return -1;} else {return 0;}
@@ -365,7 +376,11 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 		// Display progress
 		if (OPTS.progress) {
 			total_read += bytes_read;
-			fprintf(stdout, "\b\b\b\b%3.0f%%", ((float)total_read / (float)source_stat->st_size) * 100);
+			double persent_copied = ((float)total_read / (float)source_stat->st_size) * 100;
+			char *str_read = human_readable(STATS.bytes_read);
+			fprintf(stdout, "\r(%s/%s), files (%i/%i) Progress:%3.0f%%     \b\b\b\b\b",
+							str_read, STATS.str_total_size, STATS.copied_files, STATS.total_files, persent_copied);
+			free(str_read);
 		}
 	}
 	// Close file descriptors
@@ -384,6 +399,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 int count_dir_files(const char *entry_path, const struct stat *entry_stat, int tflag, struct FTW *ftwbuf) {
 	if (tflag == FTW_F) {
 		STATS.total_files++;
+		STATS.total_size += entry_stat->st_size;
 	}
 	return 0;
 }
@@ -499,7 +515,7 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 				for (int i = 0; i < OPTS.dest_num; i++) {
 					const char *rel_path = relative_path(entry_path, ftwbuf->level - 1); // (level - 1) to change root directory name
 					size_t path_len = snprintf(NULL, 0, "%s/%s", OPTS.dest[i], rel_path);
-					dest[i] = malloc(path_len + 1);
+					dest[i] = malloc( (path_len + 1) * sizeof(char) );
 					if (snprintf(dest[i], path_len + 1, "%s/%s", OPTS.dest[i], rel_path) != path_len) {
 						fprintf(stderr, "%s: snprintf result not equal %i for '%s'\n", OPTS.name, (int)path_len, dest[i]);
 						if (OPTS.fatal_errors) {return -1;} else {return 0;}
