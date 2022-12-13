@@ -35,6 +35,7 @@ struct Options {
 	bool progress;
 	bool stats;
 	bool verbose;
+	bool allocate;
 	int bufsize_kb;
 	int dest_num;
 	char *dest[];
@@ -56,6 +57,7 @@ int main(int argc, char *argv[]) {
 	OPTS.progress = false;
 	OPTS.stats = false;
 	OPTS.verbose = false;
+	OPTS.allocate = false;
 	OPTS.bufsize_kb = 8;
 	OPTS.dest_num = 0;
 
@@ -70,19 +72,27 @@ int main(int argc, char *argv[]) {
 	STATS.bytes_read = 0;
 	STATS.bytes_written = 0;
 
+	enum longopt {
+		allocate,
+	};
+
 	static struct option long_options[] = {
+		{"help", no_argument, 0, 'h'},
 		{"force", no_argument, 0, 'f'},
 		{"progress", no_argument, 0, 'p'},
 		{"stats", no_argument, 0, 's'},
 		{"verbose", no_argument, 0, 'v'},
 		{"buffsize", required_argument, 0, 'b'},
-		{"help", no_argument, 0, 'h'},
+		{"allocate", no_argument, 0, allocate},
 	};
 	// Parse command line arguments
 	int opt;
 	int option_index = 0;
 	while ((opt = getopt_long(argc, argv, ":hfpsvb:", long_options, NULL)) != -1) {
 		switch(opt) {
+			case allocate:
+				OPTS.allocate = true;
+				break;
 			case 'h':
 				print_help(OPTS.name);
 				exit(EXIT_SUCCESS);
@@ -103,18 +113,18 @@ int main(int argc, char *argv[]) {
 				OPTS.bufsize_kb = atoi(optarg);
 				if (OPTS.bufsize_kb <= 0) {
 					fprintf(stderr, "%s: invalid buffer size -- '%s'\n", OPTS.name, optarg);
-					fprintf(stdout, "Try '%s -h' for more information'\n", OPTS.name);
+					fprintf(stdout, "Try '%s --help' for more information'\n", OPTS.name);
 					exit(EXIT_FAILURE);
 				}
 				break;
 			case ':':
 				fprintf(stderr, "%s: option '%c' requires an argument\n", OPTS.name, optopt);
-				fprintf(stdout, "Try '%s -h' for more information'\n", OPTS.name);
+				fprintf(stdout, "Try '%s --help' for more information'\n", OPTS.name);
 				exit(EXIT_FAILURE);
 				break;
 			case '?':
 				fprintf(stderr, "%s: invalid option -- '%c'\n", OPTS.name, optopt);
-				fprintf(stdout, "Try '%s -h' for more information'\n", OPTS.name);
+				fprintf(stdout, "Try '%s --help' for more information'\n", OPTS.name);
 				exit(EXIT_FAILURE);
 				break;
 		}
@@ -245,6 +255,8 @@ void print_help(char *program_name) {
 Copy SOURCE to multiple DESTINATION(s)\n\
 If SOURCE is a directory - recursively copies a directory (symlinks are copied, not followed)\n\
 \n\
+-h --help\n\
+\tdisplay this help and exit\n\
 -f --force\n\
 \tforce copy even if destination files exist (overwrites files)\n\
 -p --progress\n\
@@ -255,8 +267,8 @@ If SOURCE is a directory - recursively copies a directory (symlinks are copied, 
 \tbe verbose\n\
 -b --buffsize <size>\n\
 \tbuffer size in kilobytes, default=8\n\
--h --help\n\
-\tdisplay this help and exit\n\
+--allocate\n\
+\tallocate space for files before copying\n\
 ");
 }
 
@@ -300,10 +312,13 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			return -1;
 		}
 		if (OPTS.stats) STATS.files_created++;
-		int err = posix_fallocate(dest_fds[i], 0, source_stat->st_size);
-		if ( err != 0) {
-			fprintf(stderr, "%s: cannot allocate space for '%s': %s\n", OPTS.name, dest[i], strerror(err));
-			return -1;
+		if (OPTS.allocate) {
+			if (OPTS.verbose) fprintf(stdout, "Allocating %lu bytes for '%s'\n", source_stat->st_size, dest[i]);
+			int err = posix_fallocate(dest_fds[i], 0, source_stat->st_size);
+			if ( err != 0) {
+				fprintf(stderr, "%s: cannot allocate space for '%s': %s\n", OPTS.name, dest[i], strerror(err));
+				return -1;
+			}
 		}
 	}
 
