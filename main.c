@@ -406,6 +406,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			fprintf(stdout, "\r");
 		}
 	}
+
 	// Close file descriptors
 	if (close(source_fd) == -1) {
 		fprintf(stderr, "%s: error closing file descriptor %i '%s': %s\n", OPTS.name, source_fd, source_path, strerror(errno));
@@ -443,7 +444,7 @@ const char *relative_path(const char *entry_path, int level) {
 	size_t path_len = strlen(entry_path);
 	size_t path_pos = path_len;
 	int count = 0;
-	while (path_pos >= 0 && count <= level) {
+	while (path_pos > 0 && count <= level) {
 		path_pos--;
 		if (entry_path[path_pos] == '/') count++;
 	}
