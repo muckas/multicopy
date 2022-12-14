@@ -287,9 +287,10 @@ void print_help(char *program_name) {
 	fprintf(stdout, "%s %s\n", PROGRAM_NAME, VERSION);
 	print_usage(program_name);
 	fprintf(stdout, "\
-Copy SOURCE to multiple DESTINATION(s)\n\
+Copy SOURCE to one or more DESTINATION(s) simultaneously\n\
 If SOURCE is a directory - recursively copies a directory (symlinks are copied, not followed)\n\
-\n\
+If DESTINATION is a directory, SOURCE is copied into that directory\n\
+Options:\n\
 -h --help\n\
 \tdisplay this help and exit\n\
 -f --force\n\

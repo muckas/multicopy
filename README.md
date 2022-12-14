@@ -1,10 +1,11 @@
 # multicopy
-A tool for copying files to multiple destinations at once with a single read
+A tool for copying files to multiple destinations simultaneously
 
 ```
 Usage: multicopy [OPTION]... SOURCE DESTINATION...
-Copy SOURCE to multiple DESTINATION(s)
+Copy SOURCE to one or more DESTINATION(s) simultaneously
 If SOURCE is a directory - recursively copies a directory (symlinks are copied, not followed)
+If DESTINATION is a directory, SOURCE is copied into that directory
 
 -h --help
         display this help and exit
