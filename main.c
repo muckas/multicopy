@@ -35,6 +35,7 @@ struct Options {
 	char *name;
 	bool force;
 	bool progress;
+	bool global_progress;
 	bool stats;
 	bool verbose;
 	bool allocate;
@@ -59,6 +60,7 @@ int main(int argc, char *argv[]) {
 	OPTS.name = argv[0];
 	OPTS.force = false;
 	OPTS.progress = false;
+	OPTS.global_progress = false;
 	OPTS.stats = false;
 	OPTS.verbose = false;
 	OPTS.allocate = false;
@@ -87,6 +89,7 @@ int main(int argc, char *argv[]) {
 		{"help", no_argument, 0, 'h'},
 		{"force", no_argument, 0, 'f'},
 		{"progress", no_argument, 0, 'p'},
+		{"global-progress", no_argument, 0, 'P'},
 		{"stats", no_argument, 0, 's'},
 		{"verbose", no_argument, 0, 'v'},
 		{"buffsize", required_argument, 0, 'b'},
@@ -96,7 +99,7 @@ int main(int argc, char *argv[]) {
 	// Parse command line arguments
 	int opt;
 	int option_index = 0;
-	while ((opt = getopt_long(argc, argv, ":hfpsvb:", long_options, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, ":hfpPsvb:", long_options, NULL)) != -1) {
 		switch(opt) {
 			case allocate:
 				OPTS.allocate = true;
@@ -113,6 +116,9 @@ int main(int argc, char *argv[]) {
 				break;
 			case 'p':
 				OPTS.progress = true;
+				break;
+			case 'P':
+				OPTS.global_progress = true;
 				break;
 			case 's':
 				OPTS.stats = true;
@@ -219,7 +225,7 @@ int main(int argc, char *argv[]) {
 		if (copy_result != 0) exit(EXIT_FAILURE);
 
 	} else if (S_ISDIR(statbuff.st_mode)) { // SOURCE is directory
-		if (OPTS.progress) {
+		if (OPTS.global_progress) {
 			// Counting files
 			int nftw_result = nftw(source_path, count_dir_files, 10, FTW_PHYS); // FTW_PHYS (no symlincs)
 			if (nftw_result == -1) {
@@ -287,7 +293,9 @@ If SOURCE is a directory - recursively copies a directory (symlinks are copied, 
 -f --force\n\
 \tforce copy even if destination files exist (overwrites files)\n\
 -p --progress\n\
-\tshow progress (persent copied), if copying directory, displays number of files\n\
+\tdisplay persent copied for each file\n\
+-P --global-progress\n\
+\tdisplay total persent copied of all files in a directory\n\
 -s --stats\n\
 \tshow stats at the end (files opened/created, bytes read/written)\n\
 -v --verbose\n\
@@ -351,7 +359,6 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 	// Copying files
 	char buf[OPTS.bufsize_kb * 1024];
 	ssize_t total_read = 0;
-	int iter = 0;
 	while (1) {
 		ssize_t bytes_read = read(source_fd, &buf[0], sizeof(buf));
 		if (bytes_read == -1) {
@@ -374,13 +381,20 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			}
 		}
 		// Display progress
-		if (OPTS.progress) {
+		if (OPTS.progress || OPTS.global_progress) {
 			total_read += bytes_read;
-			double persent_copied = ((float)total_read / (float)source_stat->st_size) * 100;
-			char *str_read = human_readable(STATS.bytes_read);
-			fprintf(stdout, "\r(%s/%s), files (%i/%i) Progress:%3.0f%%     \b\b\b\b\b",
-							str_read, STATS.str_total_size, STATS.copied_files, STATS.total_files, persent_copied);
-			free(str_read);
+			fprintf(stdout, "\r");
+			if (OPTS.global_progress) {
+				char *str_read = human_readable(STATS.bytes_read);
+				double total_percent_copied = ((float)STATS.bytes_read / (float)STATS.total_size) * 100;
+				fprintf(stdout, "%3.0f%% (%s/%s), files (%i/%i)",
+								total_percent_copied, str_read, STATS.str_total_size, STATS.copied_files, STATS.total_files);
+				free(str_read);
+			}
+			if (OPTS.progress) {
+				double persent_copied = ((float)total_read / (float)source_stat->st_size) * 100;
+				fprintf(stdout, " File progress:%3.0f%%     \b\b\b\b\b", persent_copied);
+			}
 		}
 	}
 	// Close file descriptors
@@ -392,7 +406,14 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			fprintf(stderr, "%s: error closing file descriptor %i '%s': %s\n", OPTS.name, source_fd, dest[i], strerror(errno));
 		}
 	}
-	if (OPTS.progress) fprintf(stdout, "\r");
+	if (OPTS.progress || OPTS.global_progress) {
+		fprintf(stdout, "\r");
+		int i;
+		while (i++ < 100) {
+			fprintf(stdout, " ");
+		}
+		fprintf(stdout, "\r");
+	}
 	return 0;
 }
 
@@ -400,6 +421,9 @@ int count_dir_files(const char *entry_path, const struct stat *entry_stat, int t
 	if (tflag == FTW_F) {
 		STATS.total_files++;
 		STATS.total_size += entry_stat->st_size;
+		char *str_size = human_readable(STATS.total_size);
+		fprintf(stdout, "\r Counting files: %i, total size: %s", STATS.total_files, str_size);
+		free(str_size);
 	}
 	return 0;
 }
