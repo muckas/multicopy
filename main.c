@@ -25,6 +25,7 @@ struct Stats {
 	int dirs_created;
 	int symlinks_read;
 	int symlinks_created;
+	int errors;
 	size_t bytes_read;
 	size_t bytes_written;
 	size_t total_size;
@@ -76,6 +77,7 @@ int main(int argc, char *argv[]) {
 	STATS.dirs_created = 0;
 	STATS.symlinks_read = 0;
 	STATS.symlinks_created = 0;
+	STATS.errors = 0;
 	STATS.total_size = 0;
 	STATS.bytes_read = 0;
 	STATS.bytes_written = 0;
@@ -316,7 +318,7 @@ void print_stats() {
 			STATS.dirs_created, STATS.files_created, STATS.symlinks_created);
 	char *read = human_readable(STATS.bytes_read);
 	char *written = human_readable(STATS.bytes_written);
-	fprintf(stdout, "%s read, %s written\n", read, written);
+	fprintf(stdout, "%s read, %s written, errors: %i\n", read, written, STATS.errors);
 	free(read);
 	free(written);
 }
@@ -327,6 +329,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 	int source_fd = open(source_path, O_RDONLY);
 	if (source_fd < 0) {
 		fprintf(stderr, "%s: cannot read '%s': %s\n", OPTS.name, source_path, strerror(errno));
+		STATS.errors++;
 		if (OPTS.fatal_errors) {return -1;} else {return 0;}
 	}
 	if (OPTS.stats) STATS.files_read++;
@@ -337,6 +340,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 		dest_fds[i] = open(dest[i], O_CREAT|O_WRONLY|O_TRUNC, source_stat->st_mode);
 		if (dest_fds[i] < 0) {
 			fprintf(stderr, "%s: cannot create regular file '%s': %s\n", OPTS.name, dest[i], strerror(errno));
+			STATS.errors++;
 			if (OPTS.fatal_errors) {return -1;} else {return 0;}
 		}
 		if (OPTS.stats) STATS.files_created++;
@@ -345,6 +349,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			int err = posix_fallocate(dest_fds[i], 0, source_stat->st_size);
 			if ( err != 0) {
 				fprintf(stderr, "%s: cannot allocate space for '%s': %s\n", OPTS.name, dest[i], strerror(err));
+				STATS.errors++;
 				if (OPTS.fatal_errors) {return -1;} else {return 0;}
 			}
 		}
@@ -353,6 +358,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 	if (OPTS.verbose) fprintf(stdout, "Copying %s to %i destinations...\n", source_path, OPTS.dest_num);
 	if (posix_fadvise(source_fd, 0, 0, POSIX_FADV_SEQUENTIAL) != 0) {
 		fprintf(stderr, "%s: posix_fadvice on '%s': %s\n", OPTS.name, source_path, strerror(errno));
+		STATS.errors++;
 		if (OPTS.fatal_errors) {return -1;} else {return 0;}
 	}
 
@@ -363,6 +369,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 		ssize_t bytes_read = read(source_fd, &buf[0], sizeof(buf));
 		if (bytes_read == -1) {
 			fprintf(stderr, "%s: error reading %s: %s\n", OPTS.name, source_path, strerror(errno));
+			STATS.errors++;
 			if (OPTS.fatal_errors) {return -1;} else {return 0;}
 		}
 		if (!bytes_read) break; // Source file ended
@@ -372,18 +379,19 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			ssize_t bytes_written = write(dest_fds[i], &buf[0], bytes_read);
 			if (bytes_written == -1) {
 				fprintf(stderr, "%s: error writing %s: %s\n", OPTS.name, dest[i], strerror(errno));
+				STATS.errors++;
 				if (OPTS.fatal_errors) {return -1;} else {return 0;}
 			}
 			STATS.bytes_written += bytes_written;
 			if (bytes_written != bytes_read) {
 				fprintf(stderr, "%s: error: bytes_written not equal to bytes_read: '%s'\n", OPTS.name, dest[i]);
+				STATS.errors++;
 				if (OPTS.fatal_errors) {return -1;} else {return 0;}
 			}
 		}
 		// Display progress
 		if (OPTS.progress || OPTS.global_progress) {
 			total_read += bytes_read;
-			fprintf(stdout, "\r");
 			if (OPTS.global_progress) {
 				char *str_read = human_readable(STATS.bytes_read);
 				double total_percent_copied = ((float)STATS.bytes_read / (float)STATS.total_size) * 100;
@@ -395,21 +403,24 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 				double persent_copied = ((float)total_read / (float)source_stat->st_size) * 100;
 				fprintf(stdout, " File progress:%3.0f%%     \b\b\b\b\b", persent_copied);
 			}
+			fprintf(stdout, "\r");
 		}
 	}
 	// Close file descriptors
 	if (close(source_fd) == -1) {
 		fprintf(stderr, "%s: error closing file descriptor %i '%s': %s\n", OPTS.name, source_fd, source_path, strerror(errno));
+		STATS.errors++;
 	}
 	for (int i = 0; i < OPTS.dest_num; i++) {
 		if (close(dest_fds[i]) == -1) {
 			fprintf(stderr, "%s: error closing file descriptor %i '%s': %s\n", OPTS.name, source_fd, dest[i], strerror(errno));
+			STATS.errors++;
 		}
 	}
 	if (OPTS.progress || OPTS.global_progress) {
 		fprintf(stdout, "\r");
 		int i;
-		while (i++ < 100) {
+		while (i++ < 80) {
 			fprintf(stdout, " ");
 		}
 		fprintf(stdout, "\r");
@@ -422,7 +433,7 @@ int count_dir_files(const char *entry_path, const struct stat *entry_stat, int t
 		STATS.total_files++;
 		STATS.total_size += entry_stat->st_size;
 		char *str_size = human_readable(STATS.total_size);
-		fprintf(stdout, "\r Counting files: %i, total size: %s", STATS.total_files, str_size);
+		fprintf(stdout, "Counting files: %i, total size: %s\r", STATS.total_files, str_size);
 		free(str_size);
 	}
 	return 0;
@@ -461,6 +472,7 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 				char path[path_len + 1];
 				if (snprintf(path, path_len + 1, "%s/%s", OPTS.dest[i], rel_path) != path_len) {
 					fprintf(stderr, "%s: snprintf result not equal %i for '%s'\n", OPTS.name, (int)path_len, path);
+					STATS.errors++;
 					if (OPTS.fatal_errors) {return -1;} else {return 0;}
 				}
 				if (path[path_len - 1] == '/') path[path_len - 1] = '\0'; // remove trailing slash
@@ -472,6 +484,7 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 							struct stat sb;
 							if (lstat(path, &sb) == -1) {
 								fprintf(stderr, "%s: cannot stat '%s': %s\n", OPTS.name, path, strerror(errno));
+								STATS.errors++;
 								if (OPTS.fatal_errors) {return -1;} else {return 0;}
 							}
 							if (!S_ISDIR(sb.st_mode)) { // it's not a directory, removing it
@@ -479,6 +492,7 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 									if (mkdir(path, entry_stat->st_mode) == -1) {
 										fprintf(stderr, "%s: cannot mkdir '%s':%s\n",
 														OPTS.name, path, strerror(errno));
+										STATS.errors++;
 										if (OPTS.fatal_errors) {return -1;} else {return 0;}
 									} else { // directory created
 										if (OPTS.stats) STATS.dirs_created++;
@@ -486,14 +500,17 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 								} else { //failed to remove file at 'path'
 									fprintf(stderr, "%s: cannot mkdir, failed overwriting '%s':%s\n",
 													OPTS.name, path, strerror(errno));
+									STATS.errors++;
 									if (OPTS.fatal_errors) {return -1;} else {return 0;}
 								}
 							}
 						} else {
 							fprintf(stderr, "%s: failed creating directory '%s': %s\n", OPTS.name, path, strerror(errno));
+							STATS.errors++;
 							if (OPTS.fatal_errors) {return -1;} else {return 0;}
 						}
 					} else { // directory created
+						STATS.errors++;
 						if (OPTS.stats) STATS.dirs_created++;
 					}
 
@@ -508,6 +525,7 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 					if (readlink(entry_path, target, bufsize) == -1) {
 						fprintf(stderr, "%s: failed reading symbolic link '%s': %s\n", OPTS.name, entry_path, strerror(errno));
 						free(target);
+						STATS.errors++;
 						if (OPTS.fatal_errors) {return -1;} else {return 0;}
 					}
 					target[bufsize - 1] = '\0'; // add nul terminator to the end of the string
@@ -515,12 +533,14 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 						if (errno != ENOENT) { // ignore errors if path does not exist
 							fprintf(stderr, "%s: failed removing symbolic link '%s': %s\n", OPTS.name, path, strerror(errno));
 							free(target);
+							STATS.errors++;
 							if (OPTS.fatal_errors) {return -1;} else {return 0;}
 						}
 					}
 					if (symlink(target, path) == -1) {
 						fprintf(stderr, "%s: failed creating symbolic link '%s': %s\n", OPTS.name, path, strerror(errno));
 						free(target);
+						STATS.errors++;
 						if (OPTS.fatal_errors) {return -1;} else {return 0;}
 					} else { // symlink created
 						if (OPTS.stats) STATS.symlinks_created++;
@@ -542,6 +562,7 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 					dest[i] = malloc( (path_len + 1) * sizeof(char) );
 					if (snprintf(dest[i], path_len + 1, "%s/%s", OPTS.dest[i], rel_path) != path_len) {
 						fprintf(stderr, "%s: snprintf result not equal %i for '%s'\n", OPTS.name, (int)path_len, dest[i]);
+						STATS.errors++;
 						if (OPTS.fatal_errors) {return -1;} else {return 0;}
 					}
 					if (dest[i][path_len - 1] == '/') dest[i][path_len - 1] = '\0'; // remove trailing slash
