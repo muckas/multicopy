@@ -1,5 +1,5 @@
 #define PROGRAM_NAME "multicopy"
-#define VERSION "3.0"
+#define VERSION "3.0+"
 
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200112L
@@ -405,6 +405,7 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 				fprintf(stdout, " File progress:%3.0f%%     \b\b\b\b\b", persent_copied);
 			}
 			fprintf(stdout, "\r");
+			fflush(stdout);
 		}
 	}
 
@@ -423,9 +424,10 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 		fprintf(stdout, "\r");
 		int i;
 		while (i++ < 80) {
-			fprintf(stdout, " ");
+			fputc(' ', stdout);
 		}
 		fprintf(stdout, "\r");
+		fflush(stdout);
 	}
 	return 0;
 }
