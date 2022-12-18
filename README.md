@@ -6,9 +6,7 @@ Usage: multicopy [OPTION]... SOURCE DESTINATION...
 Copy SOURCE to one or more DESTINATION(s) simultaneously
 If SOURCE is a directory - recursively copies a directory (symlinks are copied, not followed)
 If DESTINATION is a directory, SOURCE is copied into that directory
-
--h --help
-        display this help and exit
+Options:
 -f --force
         force copy even if destination files exist (overwrites files)
 -p --progress
@@ -25,4 +23,8 @@ If DESTINATION is a directory, SOURCE is copied into that directory
         allocate space for files before copying
 --fatal-errors
         treat every error as fatal and immediately exit
+--help
+        display this help and exit
+--version
+        display version information and exit
 ```

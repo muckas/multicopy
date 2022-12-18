@@ -1,5 +1,5 @@
 #define PROGRAM_NAME "multicopy"
-#define VERSION "3.0+"
+#define VERSION "3.1"
 
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200112L
@@ -49,6 +49,7 @@ struct Options {
 char *human_readable(size_t bytes);
 void print_usage(char *program_name);
 void print_help(char *program_name);
+void print_version();
 void print_stats();
 
 int copy_file(const char *source_path, const struct stat *source_stat, char *dest[]);
@@ -86,9 +87,10 @@ int main(int argc, char *argv[]) {
 	enum longopt {
 		allocate,
 		fatal_errors,
+		help,
+		version,
 	};
 	static struct option long_options[] = {
-		{"help", no_argument, 0, 'h'},
 		{"force", no_argument, 0, 'f'},
 		{"progress", no_argument, 0, 'p'},
 		{"global-progress", no_argument, 0, 'P'},
@@ -97,22 +99,14 @@ int main(int argc, char *argv[]) {
 		{"buffsize", required_argument, 0, 'b'},
 		{"allocate", no_argument, 0, allocate},
 		{"fatal-errors", no_argument, 0, fatal_errors},
+		{"help", no_argument, 0, help},
+		{"version", no_argument, 0, version},
 	};
 	// Parse command line arguments
 	int opt;
 	int option_index = 0;
-	while ((opt = getopt_long(argc, argv, ":hfpPsvb:", long_options, NULL)) != -1) {
+	while ((opt = getopt_long(argc, argv, ":fpPsvb:", long_options, NULL)) != -1) {
 		switch(opt) {
-			case allocate:
-				OPTS.allocate = true;
-				break;
-			case fatal_errors:
-				OPTS.fatal_errors = true;
-				break;
-			case 'h':
-				print_help(OPTS.name);
-				exit(EXIT_SUCCESS);
-				break;
 			case 'f':
 				OPTS.force = true;
 				break;
@@ -135,6 +129,20 @@ int main(int argc, char *argv[]) {
 					fprintf(stdout, "Try '%s --help' for more information'\n", OPTS.name);
 					exit(EXIT_FAILURE);
 				}
+				break;
+			case allocate:
+				OPTS.allocate = true;
+				break;
+			case fatal_errors:
+				OPTS.fatal_errors = true;
+				break;
+			case help:
+				print_help(OPTS.name);
+				exit(EXIT_SUCCESS);
+				break;
+			case version:
+				print_version();
+				exit(EXIT_SUCCESS);
 				break;
 			case ':':
 				fprintf(stderr, "%s: option '%c' requires an argument\n", OPTS.name, optopt);
@@ -284,15 +292,12 @@ void print_usage(char *program_name) {
 }
 
 void print_help(char *program_name) {
-	fprintf(stdout, "%s %s\n", PROGRAM_NAME, VERSION);
 	print_usage(program_name);
 	fprintf(stdout, "\
 Copy SOURCE to one or more DESTINATION(s) simultaneously\n\
 If SOURCE is a directory - recursively copies a directory (symlinks are copied, not followed)\n\
 If DESTINATION is a directory, SOURCE is copied into that directory\n\
 Options:\n\
--h --help\n\
-\tdisplay this help and exit\n\
 -f --force\n\
 \tforce copy even if destination files exist (overwrites files)\n\
 -p --progress\n\
@@ -309,7 +314,19 @@ Options:\n\
 \tallocate space for files before copying\n\
 --fatal-errors\n\
 \ttreat every error as fatal and immediately exit\n\
+--help\n\
+\tdisplay this help and exit\n\
+--version\n\
+\tdisplay version information and exit\n\
 ");
+}
+
+void print_version() {
+	fprintf(stdout, "%s %s\n", PROGRAM_NAME, VERSION);
+	fprintf(stdout, "License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>.\n\
+This is free software: you are free to change and redistribute it.\n\
+There is NO WARRANTY, to the extent permitted by law.\n"
+	);
 }
 
 void print_stats() {
