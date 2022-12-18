@@ -427,7 +427,6 @@ int copy_file(const char *source_path, const struct stat *source_stat, char *des
 			fputc(' ', stdout);
 		}
 		fprintf(stdout, "\r");
-		fflush(stdout);
 	}
 	return 0;
 }
@@ -438,6 +437,7 @@ int count_dir_files(const char *entry_path, const struct stat *entry_stat, int t
 		STATS.total_size += entry_stat->st_size;
 		char *str_size = human_readable(STATS.total_size);
 		fprintf(stdout, "Counting files: %i, total size: %s\r", STATS.total_files, str_size);
+		fflush(stdout);
 		free(str_size);
 	}
 	return 0;
