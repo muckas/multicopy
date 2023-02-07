@@ -1,5 +1,5 @@
 #define PROGRAM_NAME "multicopy"
-#define VERSION "3.1"
+#define VERSION "3.2"
 
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200112L
@@ -531,7 +531,6 @@ int handle_dir_entry(const char *entry_path, const struct stat *entry_stat, int 
 							if (OPTS.fatal_errors) {return -1;} else {return 0;}
 						}
 					} else { // directory created
-						STATS.errors++;
 						if (OPTS.stats) STATS.dirs_created++;
 					}
 
